@@ -4,7 +4,7 @@ A faithful reimplementation of the original 3D U-Net architecture ([Çiçek et a
 
 ## Summary
 
-This repository documents an end-to-end, leakage-free pipeline for 3D lung nodule segmentation, built with careful attention to common methodological pitfalls in medical imaging ML: patient-level data leakage, single-seed result instability, and metric-selection bias in checkpointing. The headline empirical finding is a **null result, diagnosed at the gradient level**: boundary-aware loss terms (Kervadec et al., 2019 formulation, both fixed-schedule and a novel convergence-gated adaptive variant) show no statistically significant improvement over standard Dice+Focal loss — and gradient telemetry shows why, with the boundary term contributing only ~0.05% of total gradient magnitude at its operating weight.
+This repository documents an end-to-end, leakage-free pipeline for 3D lung nodule segmentation, built with careful attention to common methodological pitfalls in medical imaging ML: patient-level data leakage, single-seed result instability, and metric-selection bias in checkpointing. The headline empirical finding is a **null result, diagnosed at the gradient level**: boundary-aware loss terms (Kervadec et al., 2019 formulation, both fixed-schedule and a novel convergence-gated adaptive variant) show no statistically significant improvement over standard Dice+Focal loss and gradient telemetry shows why, with the boundary term contributing only ~0.05% of total gradient magnitude at its operating weight.
 
 ## Key Results
 
@@ -14,9 +14,9 @@ This repository documents an end-to-end, leakage-free pipeline for 3D lung nodul
 | + Boundary Loss (fixed schedule) | 0.7413 ± 0.0020 | 5.0093 ± 0.1548 |
 | + Boundary Loss (convergence-gated, adaptive) | 0.7417 ± 0.0037 | 5.1377 ± 0.1898 |
 
-No pairwise comparison reaches statistical significance (paired t-test and Wilcoxon signed-rank test, all p > 0.05). See [`docs/statistical_analysis.md`](docs/statistical_analysis.md) for the full test matrix.
+No pairwise comparison reaches statistical significance (paired t-test and Wilcoxon signed rank test, all p > 0.05). See [`docs/statistical_analysis.md`](docs/statistical_analysis.md) for the full test matrix.
 
-**Gradient telemetry** (see [`docs/gradient_analysis.md`](docs/gradient_analysis.md)) shows the boundary loss term contributes ~0.94% of raw combined gradient magnitude, and ~0.05% at its trained effective weight — explaining the null result at the optimization level, not just the metric level.
+**Gradient telemetry** (see [`docs/gradient_analysis.md`](docs/gradient_analysis.md)) shows the boundary loss term contributes ~0.94% of raw combined gradient magnitude, and ~0.05% at its trained effective weight explaining the null result at the optimization level, not just the metric level.
 
 **Architecture fidelity**: the reimplemented 3D U-Net has 19,073,665 parameters, closely matching the original paper's reported 19,069,955 (difference fully explained by output-channel count: 1 vs. the paper's 3).
 
@@ -57,7 +57,7 @@ No pairwise comparison reaches statistical significance (paired t-test and Wilco
 - **Patient-level data splitting**: an initial patch-index-based split was found to permit train/val leakage (patients contributing multiple patches could appear in both partitions). Fixed via `GroupShuffleSplit` on patient ID, with a 30-seed search to select a split balanced on nodule-size distribution across partitions (verified via pairwise Kolmogorov-Smirnov tests, minimum p=0.553).
 - **Dual-criterion checkpointing**: early experiments selected checkpoints by best Dice only, which was found to silently misrepresent the model's true best boundary-precision (HD95) epoch. Fixed by independently tracking and saving best-Dice and best-HD95 checkpoints.
 - **Multi-seed statistical validation**: single-seed comparisons were found to be unreliable predictors of multi-seed outcomes (a promising single-seed adaptive-loss result did not replicate across a 5-seed batch). All reported comparisons use N=5 seeds with paired significance testing.
-- **Gradient-level diagnosis**: rather than stopping at "no significant difference," gradient norm telemetry was used to directly measure why — the boundary loss term's raw gradient magnitude is ~100x smaller than the regional loss terms', and further attenuated by its trained weighting coefficient.
+- **Gradient-level diagnosis**: rather than stopping at "no significant difference," gradient norm telemetry was used to directly measure why the boundary loss term's raw gradient magnitude is ~100x smaller than the regional loss terms', and further attenuated by its trained weighting coefficient.
 
 Full methodology, including the dataset construction and integrity audit, is documented in [`docs/methodology.md`](docs/methodology.md).
 
@@ -95,7 +95,7 @@ python src/train.py --seed 42 --interactive-save
 python src/archive_run.py --run <experiment_name> --name <archive_name> --notes "why this run is worth keeping"
 ```
 
-`--interactive-save` is intended for single foreground runs only — it is not safe to use with batched or background-launched training.
+`--interactive-save` is intended for single foreground runs only, it is not safe to use with batched or background-launched training.
 
 ## Limitations & Future Work
 
