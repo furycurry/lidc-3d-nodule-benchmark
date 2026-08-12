@@ -1,0 +1,9 @@
+*.h5
+*.pt
+*.npz
+outputs/
+wheelhouse/
+_old_code_backup/
+__pycache__/
+*.pyc
+.DS_Store
