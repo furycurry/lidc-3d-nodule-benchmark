@@ -42,7 +42,13 @@ No pairwise comparison reaches statistical significance (paired t-test and Wilco
 │   ├── methodology.md        # Full dataset construction & verification methodology
 │   ├── statistical_analysis.md
 │   └── gradient_analysis.md
+├── outputs/
+│   └── results/               # Per-seed, per-config training result JSONs (15 files) —
+│                              # raw evidence behind Key Results / statistical_analysis.md.
+│                              # outputs/checkpoints/ and outputs/archive/ are gitignored (large).
+├── train_val_test_split.json  # Patient-level train/val/test split (versioned for auditability)
 ├── requirements.txt
+├── .gitignore
 └── LICENSE
 ```
 
