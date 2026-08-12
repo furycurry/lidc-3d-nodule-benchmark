@@ -1,0 +1,33 @@
+# Dataset & derived caches (large, not redistributed — see README "Data availability")
+*.h5
+lidc_patches_int16.h5
+lidc_sdf_cache.h5
+
+# Patient mapping derived from local-only DICOM data (regenerate via build_hdf5.py + patient_split.py)
+patch_patient_mapping.json
+
+# train_val_test_split.json is intentionally versioned (not ignored) — it's the
+# key leakage-prevention audit artifact and is small (patient IDs + seed + KS p-values)
+
+# Training outputs
+outputs/checkpoints/
+outputs/archive/
+
+# outputs/results/ is intentionally versioned (not ignored) — it's the small,
+# raw per-run evidence behind the Key Results table and statistical tests.
+# Before committing, confirm the JSONs don't leak internal hostnames/GPU names
+# (train.py logs "hostname": platform.node() and "gpu_name") — strip those
+# fields at export time if they identify the cluster, otherwise safe to keep.
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
