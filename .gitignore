@@ -1,8 +1,7 @@
 *.h5
 *.pt
 *.npz
-outputs/checkpoints/
-outputs/archive/
+outputs/
 wheelhouse/
 _old_code_backup/
 __pycache__/
