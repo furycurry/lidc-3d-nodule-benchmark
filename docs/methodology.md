@@ -121,9 +121,11 @@ $$\mathcal{L}_B = \frac{1}{N} \sum_{x} p(x) \cdot \phi(x)$$
 Two boundary-loss weighting strategies were compared against the Dice+Focal baseline:
 
 **Fixed Schedule:**
-- Boundary weight $\lambda_b = 0$ for epochs 0–14 (warmup).
-- Linear ramp from 0 to target weight (0.05) over epochs 15–24.
-- Held constant at 0.05 after epoch 24.
+- Boundary weight $\lambda_b = 0$ for epochs 1–16 (warmup).
+- Linear ramp from 0 to target weight (0.05) over epochs 17–26, in ten steps of 0.005/epoch.
+- Held constant at 0.05 from epoch 26 onward.
+
+*(Verified directly against the training logs for all 5 fixed-schedule seeds. This is one epoch later than the schedule's original 0-indexed design — epochs 0–14 warmup / 15–24 ramp — a boundary-condition detail in the scheduling code (`>` vs. `>=`), not a functional bug, but documented here so the schedule as described matches the schedule as it actually ran.)*
 
 **Adaptive Hysteresis-Gated Schedule (PCG-BW):**
 A Schmitt-trigger-style state machine that gates boundary-loss activation by primary-loss convergence velocity:
@@ -131,12 +133,14 @@ A Schmitt-trigger-style state machine that gates boundary-loss activation by pri
 - **Gating signal:** Validation loss EMA-smoothed over window $k=3$ with $\alpha=0.3$.
 - **Convergence velocity:** Relative EMA loss decrease over the window.
 - **Two thresholds:** `GATE_TAU_ENTER = 0.005` (velocity must drop below this to start counting toward activation) and `GATE_TAU_EXIT = 0.02` (velocity must rise above this to start counting toward deactivation). Creates a "dead zone" where the gate stays in its current state.
-- **Patience:** `GATE_PATIENCE = 3` — requires 3 consecutive epochs of consistent signal before flipping state.
-- **Weight smoothing:** `WEIGHT_EMA_ALPHA = 0.3` — an additional EMA applied to the boundary weight itself for smooth ramping.
+- **Patience:** `GATE_PATIENCE = 3` requires 3 consecutive epochs of consistent signal before flipping state.
+- **Weight smoothing:** `WEIGHT_EMA_ALPHA = 0.3` an additional EMA applied to the boundary weight itself for smooth ramping.
 - **Sigmoid mapping:** Once active, velocity maps to weight via a sigmoid with temperature $\gamma = 0.001$ and maximum $\lambda_{max} = 0.05$.
 - **Edge cases:** $\lambda_b(t) = 0$ for $t < k$ (insufficient history) and for $v_p(t) \leq 0$ (validation loss degrading).
 
-**Hysteresis motivation:** An initial non-hysteresis implementation exhibited unstable gate toggling — the boundary weight switched on and off unpredictably across epochs due to single-epoch noise in validation loss velocity. The hysteresis fix produced a single, clean activation per run.
+**Hysteresis motivation:** An initial non-hysteresis implementation exhibited unstable gate toggling — the boundary weight switched on and off unpredictably across epochs due to single-epoch noise in validation loss velocity. The hysteresis fix substantially stabilizes this, though not perfectly: across the N=5 seeds used in this project, 3 seeds (42, 789, 2024) show a single activation that holds for the remainder of training, and 2 seeds (123, 456) show one deactivation-and-reactivation cycle rather than continuous oscillation. This is a marked improvement over the non-hysteresis baseline's unpredictable toggling, though not literally a single, clean activation in every run.
+
+**Realized weight, in practice:** Across all 5 adaptive-schedule seeds and all epochs, the actual boundary weight never approached $\lambda_{max}=0.05$: the maximum weight observed in any seed/epoch was 0.0231, and per-seed mean weight during gate-active epochs ranged from 0.0000 to 0.0101 — well below the fixed schedule's steady-state weight of 0.05 (held for the back half of training, per the corrected schedule above). See `gradient_analysis.md` Section 4.2 for how this reinforces the gradient-magnitude explanation of the null result.
 
 ### 3.4 Output-Layer Bias Calibration
 A standard focal-loss bias calibration is applied at model initialization:
@@ -171,7 +175,7 @@ Two checkpoints are saved independently per run:
 - `best_dice_unet3d.pt` — updated only when validation Dice improves.
 - `best_hd95_unet3d.pt` — updated only when validation HD95 improves.
 
-This prevents the earlier bug where tracking only the Dice-best checkpoint caused the reported HD95 to be whatever happened to occur on the Dice-best epoch — often not the model's true best boundary-precision epoch.
+This prevents the earlier bug where tracking only the Dice-best checkpoint caused the reported HD95 to be whatever happened to occur on the Dice-best epoch often not the model's true best boundary-precision epoch.
 
 ### 4.4 Data Augmentation
 Training uses random augmentation:
@@ -216,17 +220,11 @@ Pairwise comparisons across configurations use:
 Both applied to matched seeds for `best_val_dice` and `best_val_hd95`. Significance threshold: $\alpha = 0.05$.
 
 ### 5.4 Gradient Telemetry
-A standalone, non-invasive diagnostic script (`grad_telemetry_check.py`) measures gradient magnitude of the boundary loss term vs. the regional (Dice+Focal) loss term using a trained checkpoint and real validation batches — deliberately not modifying `train.py`, just inspecting gradients via `torch.autograd.grad`.
+A standalone, non-invasive diagnostic script (`grad_telemetry_check.py`) measures gradient magnitude of the boundary loss term vs. the regional (Dice+Focal) loss term using a trained checkpoint and real validation batches, deliberately not modifying `train.py`, just inspecting gradients via `torch.autograd.grad`.
 
 ---
 
-## 6. Code Versioning
-
-A hash-based code-version fingerprint (`get_code_version()`) computes the SHA-256 of core `.py` files and reports the first 12 hex characters. This was built specifically so code-version tracking does not depend on git being maintained, given the project's history of full codebase rebuilds.
-
----
-
-## 7. Limitations and Scope
+## 6. Limitations and Scope
 
 - **SDF patch-truncation:** The SDF is computed within a cropped 64³ patch with no knowledge of true nodule geometry beyond the patch edge. This is a known geometric approximation.
 - **Single-architecture-family scope:** Only the 3D U-Net family was evaluated; no attention mechanisms, transformer blocks, or other architectures were tested.
