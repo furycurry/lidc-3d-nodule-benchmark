@@ -27,8 +27,8 @@ The extraction script used `scan.to_volume()` with a `(Y, X, Z) → (Z, Y, X)` t
 A comprehensive audit checked 12 categories: key alignment (images↔masks), shape consistency (all exactly 64³), dtype consistency, HU value range, NaN/Inf presence, mask binarity, empty-mask presence, exact-duplicate detection (via content hashing), patient-mapping completeness, and train/val/test split leakage.
 
 **10/12 checks passed cleanly.** Two flagged items were investigated and confirmed benign:
-- **HU range outliers:** 132/2,651 patches showed minimum HU of exactly −2048 or −3024. Traced to a well-documented CT scanner artifact — out-of-reconstruction-field-of-view padding, common in raw DICOM data. Irrelevant to training since the data-loading pipeline clamps everything to [−1000, 400] HU regardless, making these values numerically indistinguishable from physiological air. One patch (`nodule_2211`) showed max HU of 4137, consistent with dense calcification.
-- **One exact duplicate pair:** `nodule_2400` and `nodule_2401` were byte-identical. Cross-referenced against patient mapping and confirmed to originate from the **same patient** (`LIDC-IDRI-0733`) — two close annotation clusters capturing overlapping tissue. Zero leakage risk since patient-level splitting guarantees both instances land in the same partition.
+- **HU range outliers:** 132/2,651 patches showed minimum HU of exactly −2048 or −3024. Traced to a well-documented CT scanner artifact out-of-reconstruction-field-of-view padding, common in raw DICOM data. Irrelevant to training since the data-loading pipeline clamps everything to [−1000, 400] HU regardless, making these values numerically indistinguishable from physiological air. One patch (`nodule_2211`) showed max HU of 4137, consistent with dense calcification.
+- **One exact duplicate pair:** `nodule_2400` and `nodule_2401` were byte-identical. Cross-referenced against patient mapping and confirmed to originate from the **same patient** (`LIDC-IDRI-0733`), two close annotation clusters capturing overlapping tissue. Zero leakage risk since patient-level splitting guarantees both instances land in the same partition.
 
 ### 1.4 Patient Identity Reconstruction
 The HDF5 file does not natively store per-patch patient ID. A separate reconstruction script replays `pl.query(pl.Scan).all()` + `scan.cluster_annotations()` in the same order as the extraction script, assigning `scan.patient_id` sequentially to `nodule_XXXX` keys.
@@ -42,7 +42,7 @@ A patient-level data-leakage issue was identified and fixed in early development
 
 **Fix:** `sklearn.model_selection.GroupShuffleSplit`, grouped by `PatientID`, producing a proper **3-way split** (train / validation / held-out test).
 
-**Balance verification:** A 30-seed search evaluated each candidate split's pairwise Kolmogorov-Smirnov test on nodule-size (foreground voxel count) distribution across train/val/test. The winning seed (**seed = 5**) achieved a minimum pairwise p-value of **0.553** (train-val p = 0.822, train-test p = 0.835, val-test p = 0.553) — well above the 0.05 significance threshold, confirming no meaningful size-distribution skew.
+**Balance verification:** A 30-seed search evaluated each candidate split's pairwise Kolmogorov-Smirnov test on nodule-size (foreground voxel count) distribution across train/val/test. The winning seed (**seed = 5**) achieved a minimum pairwise p-value of **0.553** (train-val p = 0.822, train-test p = 0.835, val-test p = 0.553) which is well above the 0.05 significance threshold, confirming no meaningful size-distribution skew.
 
 **Final split:** **1,833 train / 384 val / 434 test** patches.
 
@@ -113,7 +113,7 @@ Given a predicted probability map $p(x)$ and a signed distance field (SDF) $\phi
 
 $$\mathcal{L}_B = \frac{1}{N} \sum_{x} p(x) \cdot \phi(x)$$
 
-**Stabilization (critical fix):** An early unclipped implementation caused catastrophic training collapse — the model predicted entirely empty volumes (Val Dice → ~0.0000). Root cause: unclipped SDF magnitude in distant background voxels (up to ~50 units) dominated the loss, creating a strong incentive to predict nothing anywhere.
+**Stabilization (critical fix):** An early unclipped implementation caused catastrophic training collapse which the model predicted entirely empty volumes (Val Dice → ~0.0000). Root cause: unclipped SDF magnitude in distant background voxels (up to ~50 units) dominated the loss, creating a strong incentive to predict nothing anywhere.
 
 **Fix:** SDF values are **clipped to [−20, +20]** before averaging. This prevents distant background voxels from dominating while preserving the boundary-localization signal.
 
@@ -133,8 +133,8 @@ A Schmitt-trigger-style state machine that gates boundary-loss activation by pri
 - **Gating signal:** Validation loss EMA-smoothed over window $k=3$ with $\alpha=0.3$.
 - **Convergence velocity:** Relative EMA loss decrease over the window.
 - **Two thresholds:** `GATE_TAU_ENTER = 0.005` (velocity must drop below this to start counting toward activation) and `GATE_TAU_EXIT = 0.02` (velocity must rise above this to start counting toward deactivation). Creates a "dead zone" where the gate stays in its current state.
-- **Patience:** `GATE_PATIENCE = 3` requires 3 consecutive epochs of consistent signal before flipping state.
-- **Weight smoothing:** `WEIGHT_EMA_ALPHA = 0.3` an additional EMA applied to the boundary weight itself for smooth ramping.
+- **Patience:** `GATE_PATIENCE = 3` — requires 3 consecutive epochs of consistent signal before flipping state.
+- **Weight smoothing:** `WEIGHT_EMA_ALPHA = 0.3` — an additional EMA applied to the boundary weight itself for smooth ramping.
 - **Sigmoid mapping:** Once active, velocity maps to weight via a sigmoid with temperature $\gamma = 0.001$ and maximum $\lambda_{max} = 0.05$.
 - **Edge cases:** $\lambda_b(t) = 0$ for $t < k$ (insufficient history) and for $v_p(t) \leq 0$ (validation loss degrading).
 
@@ -175,7 +175,7 @@ Two checkpoints are saved independently per run:
 - `best_dice_unet3d.pt` — updated only when validation Dice improves.
 - `best_hd95_unet3d.pt` — updated only when validation HD95 improves.
 
-This prevents the earlier bug where tracking only the Dice-best checkpoint caused the reported HD95 to be whatever happened to occur on the Dice-best epoch often not the model's true best boundary-precision epoch.
+This prevents the earlier bug where tracking only the Dice-best checkpoint caused the reported HD95 to be whatever happened to occur on the Dice-best epoch — often not the model's true best boundary-precision epoch.
 
 ### 4.4 Data Augmentation
 Training uses random augmentation:
@@ -220,7 +220,7 @@ Pairwise comparisons across configurations use:
 Both applied to matched seeds for `best_val_dice` and `best_val_hd95`. Significance threshold: $\alpha = 0.05$.
 
 ### 5.4 Gradient Telemetry
-A standalone, non-invasive diagnostic script (`grad_telemetry_check.py`) measures gradient magnitude of the boundary loss term vs. the regional (Dice+Focal) loss term using a trained checkpoint and real validation batches, deliberately not modifying `train.py`, just inspecting gradients via `torch.autograd.grad`.
+A standalone, non-invasive diagnostic script (`grad_telemetry_check.py`) measures gradient magnitude of the boundary loss term vs. the regional (Dice+Focal) loss term using a trained checkpoint and real validation batches — deliberately not modifying `train.py`, just inspecting gradients via `torch.autograd.grad`.
 
 ---
 
