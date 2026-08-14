@@ -79,6 +79,8 @@ Both the fixed-schedule and adaptive hysteresis-gated strategies control **when*
 
 In other words, for the tested SDF formulation and weight ceiling, the scheduling debate (fixed vs. adaptive) is secondary to the fundamental magnitude deficit. The gating mechanism controls *when* a negligible signal is applied, not whether the signal itself is strong enough to influence optimization.
 
+**This is empirically confirmed by the adaptive schedule's actual training logs.** The 0.05% figure above was computed by scaling the raw boundary gradient by $\lambda_{max}=0.05$ — the fixed schedule's steady-state weight. But across all 5 adaptive-schedule seeds, the *realized* boundary weight never actually reached $\lambda_{max}$: the maximum weight observed in any seed/epoch was 0.0231 (well under half the ceiling), and per-seed mean weight during gate-active epochs ranged from 0.0000 to 0.0101 (see `methodology.md`, Section 3.3). This means the adaptive variant's true effective gradient contribution was, for most of training, smaller than the 0.05% figure implies — reinforcing rather than complicating the gradient-starvation diagnosis for both scheduling strategies.
+
 ### 4.3 Consistency with the Null Result
 This diagnosis directly explains the statistical null result:
 - If the boundary term contributes ~0.05% of gradient magnitude, its presence or absence, and the exact schedule of its application, should produce no measurable difference in final model parameters.
@@ -119,7 +121,7 @@ These are left as future work.
 
 1. **Single checkpoint.** The diagnostic was run on one trained model (fixed-schedule boundary, seed 42). While this is representative of a converged state, gradient dynamics could differ early in training.
 2. **Single seed.** The checkpoint comes from one random seed. However, the N = 5 multi-seed results show tight variance across seeds for the fixed-schedule config, suggesting seed-dependent gradient dynamics are unlikely.
-3. **Weight-specific.** The 0.05% figure is specific to $\lambda_{max} = 0.05$. A higher weight ceiling would increase the effective share proportionally, but would also risk the catastrophic collapse that the clipping and warmup schedule were designed to prevent.
+3. **Weight-specific.** The 0.05% figure is specific to $\lambda_{max} = 0.05$, and was computed from the fixed-schedule checkpoint, whose weight reaches and holds at the full 0.05 ceiling for the back half of training. The adaptive schedule's realized weight stayed well below this ceiling in all 5 seeds (max observed: 0.0231), so its true effective contribution was likely smaller than 0.05% for most of training — see Section 4.2. A higher weight ceiling would increase the effective share proportionally, but would also risk the catastrophic collapse that the clipping and warmup schedule were designed to prevent.
 4. **Batch-size dependence.** Gradient norms are batch-size dependent. The diagnostic used the same batch size (8) as training, so the relative share is internally consistent, but absolute norms would scale with batch size.
 
 ---
