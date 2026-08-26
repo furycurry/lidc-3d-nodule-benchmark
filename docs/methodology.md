@@ -249,20 +249,12 @@ A standalone, non-invasive diagnostic script (`grad_telemetry_check.py`) measure
 ### 6.2 SDF Rotation Approximation
 Under training-time random rotation (±0.3 rad per axis), the cached SDF is bilinear-interpolated rather than recomputed from the rotated mask. This error was quantified directly (near-boundary mean deviation 0.240 mm across 1,000 sampled nodule–angle pairs) and then tested empirically: both boundary-loss configurations were re-trained with the SDF recomputed on-the-fly from the rotated mask across all 5 seeds. Paired comparisons showed no statistically significant difference for either configuration (all p > 0.11), confirming the rotation approximation is not a contributing factor to the null result.
 
-### 6.3 Single-Architecture-Family Scope
-Only the 3D U-Net family was evaluated; no attention mechanisms, transformer blocks, or other architectures were tested.
-
-### 6.4 Boundary-Loss Weight Ceiling
+### 6.3 Boundary-Loss Weight Ceiling
 The null result on boundary-loss weighting is specific to $\lambda_{max} = 0.05$. Higher weights were not explored due to the observed gradient-starvation diagnosis.
 
-### 6.5 Single Dataset
+### 6.4 Single Dataset
 Results are specific to LIDC-IDRI; generalization to other pulmonary nodule datasets or other 3D segmentation tasks is not claimed.
 
-### 6.6 Test-Set Evaluation
+### 6.5 Test-Set Evaluation
 The held-out test set was evaluated once under one-look discipline; test-set numbers did not trigger any post-hoc model, loss, or hyperparameter changes.
 '''
-
-output_path = Path("/mnt/agents/output/methodology.md")
-output_path.write_text(content, encoding="utf-8")
-print(f"Saved: {output_path}")
-print(f"Size: {len(content)} bytes")
