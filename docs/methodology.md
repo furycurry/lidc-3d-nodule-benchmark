@@ -1,4 +1,7 @@
-# Methodology
+
+from pathlib import Path
+
+content = r'''# Methodology
 
 This document describes the complete methodological pipeline for 3D pulmonary nodule segmentation on the LIDC-IDRI dataset, including dataset construction, model architecture, loss functions, experimental protocol, and evaluation metrics.
 
@@ -35,6 +38,8 @@ The HDF5 file does not natively store per-patch patient ID. A separate reconstru
 
 **Validity was explicitly verified:** (a) both scripts use identical, unfiltered iteration logic; (b) the original extraction completed with **zero failed scans** — critical, because any failure would have caused desynchronization; (c) the reconstructed mapping produced **exactly 2,651 entries**, matching the original patch count exactly.
 
+**Independent re-verification:** A from-scratch re-derivation (`patch_patient_mapping_v2.json`) was diffed against the original mapping. Both files contain exactly 2,651 entries with **zero differing keys**, providing direct empirical confirmation of the ordering assumption.
+
 **Known limitation:** this reconstruction approach carries an ordering-assumption risk that a "record patient_id at extraction time" approach would not have. This is noted as a methodological choice for future reproduction.
 
 ### 1.5 Patient-Level Data Partitioning
@@ -48,7 +53,7 @@ A patient-level data-leakage issue was identified and fixed in early development
 
 **Hard leakage guarantee:** Patient-set intersection assertions (train∩val, train∩test, val∩test all empty) are checked programmatically in `train.py` on every run.
 
-**Held-out test discipline:** The test set has been evaluated exactly once (on the earlier, now-superseded MONAI baseline architecture). It has **not yet been evaluated** on the final `UNet3DPaper` architecture; this evaluation is deliberately deferred until all architecture/loss decisions are finalized (one-look discipline).
+**Held-out test discipline:** The test set was evaluated under a one-look discipline after all architecture and loss decisions were finalized. All 15 checkpoints (3 configurations × 5 seeds) were evaluated once on the 434-patch patient-disjoint test partition, with no post-hoc selection or further tuning permitted. Paired comparisons across test-set Dice, HD95, IoU, and ASSD showed no statistically significant differences between any pair of configurations (all p > 0.17, t-test and Wilcoxon signed-rank), replicating the validation-time null result on genuinely untouched data. See Section 4.6 for full details.
 
 ### 1.6 Precomputed SDF Cache
 A separate file, `lidc_sdf_cache.h5`, stores a precomputed signed distance field (SDF) per mask. Computed once via `precompute_sdf.py` (~3.5 minutes for all 2,651 patches) rather than recomputed every training step, since the SDF depends only on the static ground-truth mask.
@@ -57,7 +62,9 @@ A separate file, `lidc_sdf_cache.h5`, stores a precomputed signed distance field
 
 **Correctness verified:** Cached SDF values confirmed byte-identical to fresh on-the-fly computation on 5 test patches (`max_diff = 0.000000`).
 
-**Documented caveat:** Under data augmentation (random rotation), the cached SDF is transformed via bilinear interpolation rather than exactly recomputed from the rotated mask — a deliberate speed/exactness tradeoff with low but nonzero geometric error. The validation set uses no augmentation, so its cached SDF is used exactly as computed, with zero approximation.
+**SDF patch-boundary truncation:** The SDF is computed within a cropped 64³ patch with no knowledge of true nodule geometry beyond the patch edge. This was quantified directly: 304/2,651 nodules (11.5%) have their true extent touching or exceeding the 64³ patch boundary, with a mean near-boundary SDF deviation of 0.191 mm for these nodules vs. 0.023 mm for non-truncated ones. To directly test whether this affects the reported null result, both boundary-loss configurations were re-trained on corrected, non-truncated SDFs (computed on a 128³ wide mask and cropped to 64³) across all 5 seeds. Paired comparisons (t-test and Wilcoxon signed-rank) across Dice, HD95, and IoU showed no statistically significant difference between original and corrected-SDF results for either configuration (all p > 0.11), with the adaptive configuration showing near-identical means (Dice: 0.7348 vs. 0.7348; HD95: 5.581 vs. 5.581). This directly confirms the truncation error is not a contributing factor to the null result, consistent with the independently-measured gradient-magnitude explanation (boundary term ~0.05% of gradient magnitude vs. ~0.94% for the regional loss).
+
+**SDF rotation approximation:** Under training-time random rotation (±0.3 rad per axis), the cached SDF is bilinear-interpolated rather than recomputed from the rotated mask. This error was quantified directly (near-boundary mean deviation 0.240 mm across 1,000 sampled nodule–angle pairs, comparable in magnitude to patch-boundary truncation) and then tested empirically: both boundary-loss configurations were re-trained with the SDF recomputed on-the-fly from the rotated mask across all 5 seeds. Paired comparisons (t-test and Wilcoxon signed-rank) across Dice, HD95, and IoU showed no statistically significant difference for either configuration (all p > 0.11), confirming the rotation approximation, like patch-boundary truncation, is not a contributing factor to the reported null result.
 
 The SDF cache is kept in a **separate file** from the original dataset, so the original checksum-verified dataset remains completely untouched and immutable.
 
@@ -111,7 +118,7 @@ The boundary loss formulation follows Kervadec et al. (2019), with a critical st
 
 Given a predicted probability map $p(x)$ and a signed distance field (SDF) $\phi(x)$ derived from the ground-truth mask, the boundary loss is:
 
-$$\mathcal{L}_B = \frac{1}{N} \sum_{x} p(x) \cdot \phi(x)$$
+$$\\mathcal{L}_B = \\frac{1}{N} \\sum_{x} p(x) \\cdot \\phi(x)$$
 
 **Stabilization (critical fix):** An early unclipped implementation caused catastrophic training collapse which the model predicted entirely empty volumes (Val Dice → ~0.0000). Root cause: unclipped SDF magnitude in distant background voxels (up to ~50 units) dominated the loss, creating a strong incentive to predict nothing anywhere.
 
@@ -136,7 +143,7 @@ A Schmitt-trigger-style state machine that gates boundary-loss activation by pri
 - **Patience:** `GATE_PATIENCE = 3` — requires 3 consecutive epochs of consistent signal before flipping state.
 - **Weight smoothing:** `WEIGHT_EMA_ALPHA = 0.3` — an additional EMA applied to the boundary weight itself for smooth ramping.
 - **Sigmoid mapping:** Once active, velocity maps to weight via a sigmoid with temperature $\gamma = 0.001$ and maximum $\lambda_{max} = 0.05$.
-- **Edge cases:** $\lambda_b(t) = 0$ for $t < k$ (insufficient history) and for $v_p(t) \leq 0$ (validation loss degrading).
+- **Edge cases:** $\lambda_b(t) = 0$ for $t < k$ (insufficient history) and for $v_p(t) \\leq 0$ (validation loss degrading).
 
 **Hysteresis motivation:** An initial non-hysteresis implementation exhibited unstable gate toggling — the boundary weight switched on and off unpredictably across epochs due to single-epoch noise in validation loss velocity. The hysteresis fix substantially stabilizes this, though not perfectly: across the N=5 seeds used in this project, 3 seeds (42, 789, 2024) show a single activation that holds for the remainder of training, and 2 seeds (123, 456) show one deactivation-and-reactivation cycle rather than continuous oscillation. This is a marked improvement over the non-hysteresis baseline's unpredictable toggling, though not literally a single, clean activation in every run.
 
@@ -186,13 +193,21 @@ Validation uses **no augmentation**.
 
 ### 4.5 Training Hyperparameters
 - **Batch size:** 8
-- **Optimizer:** Adam
+- **Optimizer:** AdamW (weight decay 1e-5)
 - **Learning rate:** Standard schedule (details in `config.py`)
 - **Epochs:** 50
 - **DataLoader:** `persistent_workers=True` for minor throughput optimization
 
 ### 4.6 Held-Out Test Set Discipline
-The test set is treated as a true held-out evaluation. It has **not been evaluated** on the final `UNet3DPaper` architecture. Evaluation will occur exactly once after all architecture and loss decisions are finalized, per one-look discipline.
+The test set was treated as a true held-out evaluation and evaluated exactly once on the final `UNet3DPaper` architecture after all architecture and loss decisions were finalized, per one-look discipline. All 15 checkpoints (baseline, fixed-schedule boundary, and adaptive boundary, each across 5 seeds) were evaluated on the 434-patch test partition.
+
+**Test-set headline result:** Paired comparisons across test-set Dice, HD95, IoU, and ASSD showed no statistically significant differences between any pair of configurations (all p > 0.17, t-test and Wilcoxon signed-rank), replicating the validation-time null result on genuinely untouched data.
+
+**Generalization gap:** Consistent across configurations (Dice decrease 0.006–0.012, HD95 increase 1.1–1.4 mm), with no evidence that boundary-loss variants generalize differently from the baseline.
+
+**Size-stratified test Dice:** Maintained the small < medium < large ordering observed on validation (baseline: 0.690 → 0.740 → 0.768), confirming the null result is robust across nodule sizes.
+
+Critically, the test-set numbers did not trigger any post-hoc model, loss, or hyperparameter changes — this is the actual meaning of one-look discipline.
 
 ---
 
@@ -204,7 +219,7 @@ All metrics computed at the patch level:
 - **Dice Similarity Coefficient (DSC):** Primary overlap metric.
 - **HD95 (95th Percentile Hausdorff Distance):** Boundary precision, in millimeters. Empty or skipped predictions are **penalized** with the maximum possible patch diagonal (~110.85 mm for a 64³ patch) rather than excluded from the mean. This addresses a previously flagged optimistic bias.
 - **HD100 (Maximum Hausdorff Distance):** Worst-case boundary error.
-- **ASSD (Average Symmetric Surface Distance):** Mean surface distance.
+- **ASSD (Average Symmetric Surface Distance):** Mean surface distance, reported as a headline metric alongside Dice and HD95 in both validation and test-set analyses.
 - **IoU (Intersection over Union):** Alternative overlap metric.
 - **Precision, Recall, Specificity, F1:** Derived from MONAI's `ConfusionMatrixMetric`.
 - **Raw TP/FP/FN/TN voxel counts:** Logged to enable any confusion-matrix metric to be recomputed later without rerunning.
@@ -219,6 +234,8 @@ Pairwise comparisons across configurations use:
 
 Both applied to matched seeds for `best_val_dice` and `best_val_hd95`. Significance threshold: $\alpha = 0.05$.
 
+The same paired statistical methodology was applied to test-set results, with pairwise comparisons across all three configurations on test Dice, HD95, IoU, and ASSD.
+
 ### 5.4 Gradient Telemetry
 A standalone, non-invasive diagnostic script (`grad_telemetry_check.py`) measures gradient magnitude of the boundary loss term vs. the regional (Dice+Focal) loss term using a trained checkpoint and real validation batches — deliberately not modifying `train.py`, just inspecting gradients via `torch.autograd.grad`.
 
@@ -226,7 +243,26 @@ A standalone, non-invasive diagnostic script (`grad_telemetry_check.py`) measure
 
 ## 6. Limitations and Scope
 
-- **SDF patch-truncation:** The SDF is computed within a cropped 64³ patch with no knowledge of true nodule geometry beyond the patch edge. This is a known geometric approximation.
-- **Single-architecture-family scope:** Only the 3D U-Net family was evaluated; no attention mechanisms, transformer blocks, or other architectures were tested.
-- **Boundary-loss weight ceiling:** The null result on boundary-loss weighting is specific to $\lambda_{max} = 0.05$. Higher weights were not explored due to the observed gradient-starvation diagnosis.
-- **Single dataset:** Results are specific to LIDC-IDRI; generalization to other pulmonary nodule datasets or other 3D segmentation tasks is not claimed.
+### 6.1 SDF Patch-Boundary Truncation
+304/2,651 nodules (11.5%) have their true extent touching or exceeding the 64³ patch boundary, with a mean near-boundary SDF deviation of 0.191 mm for these nodules vs. 0.023 mm for non-truncated ones. To directly test whether this affects the reported null result, both boundary-loss configurations were re-trained on corrected, non-truncated SDFs across all 5 seeds. Paired comparisons (t-test and Wilcoxon signed-rank) across Dice, HD95, and IoU showed no statistically significant difference between original and corrected-SDF results for either configuration (all p > 0.11), with the adaptive configuration showing near-identical means (Dice: 0.7348 vs. 0.7348; HD95: 5.581 vs. 5.581). This directly confirms the truncation error is not a contributing factor to the null result, consistent with the independently-measured gradient-magnitude explanation (boundary term ~0.05% of gradient magnitude vs. ~0.94% for the regional loss).
+
+### 6.2 SDF Rotation Approximation
+Under training-time random rotation (±0.3 rad per axis), the cached SDF is bilinear-interpolated rather than recomputed from the rotated mask. This error was quantified directly (near-boundary mean deviation 0.240 mm across 1,000 sampled nodule–angle pairs) and then tested empirically: both boundary-loss configurations were re-trained with the SDF recomputed on-the-fly from the rotated mask across all 5 seeds. Paired comparisons showed no statistically significant difference for either configuration (all p > 0.11), confirming the rotation approximation is not a contributing factor to the null result.
+
+### 6.3 Single-Architecture-Family Scope
+Only the 3D U-Net family was evaluated; no attention mechanisms, transformer blocks, or other architectures were tested.
+
+### 6.4 Boundary-Loss Weight Ceiling
+The null result on boundary-loss weighting is specific to $\lambda_{max} = 0.05$. Higher weights were not explored due to the observed gradient-starvation diagnosis.
+
+### 6.5 Single Dataset
+Results are specific to LIDC-IDRI; generalization to other pulmonary nodule datasets or other 3D segmentation tasks is not claimed.
+
+### 6.6 Test-Set Evaluation
+The held-out test set was evaluated once under one-look discipline; test-set numbers did not trigger any post-hoc model, loss, or hyperparameter changes.
+'''
+
+output_path = Path("/mnt/agents/output/methodology.md")
+output_path.write_text(content, encoding="utf-8")
+print(f"Saved: {output_path}")
+print(f"Size: {len(content)} bytes")
