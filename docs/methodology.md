@@ -1,7 +1,4 @@
-
-from pathlib import Path
-
-content = r'''# Methodology
+# Methodology
 
 This document describes the complete methodological pipeline for 3D pulmonary nodule segmentation on the LIDC-IDRI dataset, including dataset construction, model architecture, loss functions, experimental protocol, and evaluation metrics.
 
@@ -116,7 +113,7 @@ The boundary loss formulation follows Kervadec et al. (2019), with a critical st
 
 **Formulation:**
 
-Given a predicted probability map $p(x)$ and a signed distance field (SDF) $\phi(x)$ derived from the ground-truth mask, the boundary loss is:
+Given a predicted probability map $p(x)$ and a signed distance field (SDF) $\\phi(x)$ derived from the ground-truth mask, the boundary loss is:
 
 $$\\mathcal{L}_B = \\frac{1}{N} \\sum_{x} p(x) \\cdot \\phi(x)$$
 
@@ -128,7 +125,7 @@ $$\\mathcal{L}_B = \\frac{1}{N} \\sum_{x} p(x) \\cdot \\phi(x)$$
 Two boundary-loss weighting strategies were compared against the Dice+Focal baseline:
 
 **Fixed Schedule:**
-- Boundary weight $\lambda_b = 0$ for epochs 1–16 (warmup).
+- Boundary weight $\\lambda_b = 0$ for epochs 1–16 (warmup).
 - Linear ramp from 0 to target weight (0.05) over epochs 17–26, in ten steps of 0.005/epoch.
 - Held constant at 0.05 from epoch 26 onward.
 
@@ -137,17 +134,17 @@ Two boundary-loss weighting strategies were compared against the Dice+Focal base
 **Adaptive Hysteresis-Gated Schedule (PCG-BW):**
 A Schmitt-trigger-style state machine that gates boundary-loss activation by primary-loss convergence velocity:
 
-- **Gating signal:** Validation loss EMA-smoothed over window $k=3$ with $\alpha=0.3$.
+- **Gating signal:** Validation loss EMA-smoothed over window $k=3$ with $\\alpha=0.3$.
 - **Convergence velocity:** Relative EMA loss decrease over the window.
 - **Two thresholds:** `GATE_TAU_ENTER = 0.005` (velocity must drop below this to start counting toward activation) and `GATE_TAU_EXIT = 0.02` (velocity must rise above this to start counting toward deactivation). Creates a "dead zone" where the gate stays in its current state.
 - **Patience:** `GATE_PATIENCE = 3` — requires 3 consecutive epochs of consistent signal before flipping state.
 - **Weight smoothing:** `WEIGHT_EMA_ALPHA = 0.3` — an additional EMA applied to the boundary weight itself for smooth ramping.
-- **Sigmoid mapping:** Once active, velocity maps to weight via a sigmoid with temperature $\gamma = 0.001$ and maximum $\lambda_{max} = 0.05$.
-- **Edge cases:** $\lambda_b(t) = 0$ for $t < k$ (insufficient history) and for $v_p(t) \\leq 0$ (validation loss degrading).
+- **Sigmoid mapping:** Once active, velocity maps to weight via a sigmoid with temperature $\\gamma = 0.001$ and maximum $\\lambda_{max} = 0.05$.
+- **Edge cases:** $\\lambda_b(t) = 0$ for $t < k$ (insufficient history) and for $v_p(t) \\leq 0$ (validation loss degrading).
 
 **Hysteresis motivation:** An initial non-hysteresis implementation exhibited unstable gate toggling — the boundary weight switched on and off unpredictably across epochs due to single-epoch noise in validation loss velocity. The hysteresis fix substantially stabilizes this, though not perfectly: across the N=5 seeds used in this project, 3 seeds (42, 789, 2024) show a single activation that holds for the remainder of training, and 2 seeds (123, 456) show one deactivation-and-reactivation cycle rather than continuous oscillation. This is a marked improvement over the non-hysteresis baseline's unpredictable toggling, though not literally a single, clean activation in every run.
 
-**Realized weight, in practice:** Across all 5 adaptive-schedule seeds and all epochs, the actual boundary weight never approached $\lambda_{max}=0.05$: the maximum weight observed in any seed/epoch was 0.0231, and per-seed mean weight during gate-active epochs ranged from 0.0000 to 0.0101 — well below the fixed schedule's steady-state weight of 0.05 (held for the back half of training, per the corrected schedule above). See `gradient_analysis.md` Section 4.2 for how this reinforces the gradient-magnitude explanation of the null result.
+**Realized weight, in practice:** Across all 5 adaptive-schedule seeds and all epochs, the actual boundary weight never approached $\\lambda_{max}=0.05$: the maximum weight observed in any seed/epoch was 0.0231, and per-seed mean weight during gate-active epochs ranged from 0.0000 to 0.0101 — well below the fixed schedule's steady-state weight of 0.05 (held for the back half of training, per the corrected schedule above). See `gradient_analysis.md` Section 4.2 for how this reinforces the gradient-magnitude explanation of the null result.
 
 ### 3.4 Output-Layer Bias Calibration
 A standard focal-loss bias calibration is applied at model initialization:
@@ -232,7 +229,7 @@ Pairwise comparisons across configurations use:
 - **Paired t-test**
 - **Wilcoxon signed-rank test**
 
-Both applied to matched seeds for `best_val_dice` and `best_val_hd95`. Significance threshold: $\alpha = 0.05$.
+Both applied to matched seeds for `best_val_dice` and `best_val_hd95`. Significance threshold: $\\alpha = 0.05$.
 
 The same paired statistical methodology was applied to test-set results, with pairwise comparisons across all three configurations on test Dice, HD95, IoU, and ASSD.
 
@@ -249,20 +246,11 @@ A standalone, non-invasive diagnostic script (`grad_telemetry_check.py`) measure
 ### 6.2 SDF Rotation Approximation
 Under training-time random rotation (±0.3 rad per axis), the cached SDF is bilinear-interpolated rather than recomputed from the rotated mask. This error was quantified directly (near-boundary mean deviation 0.240 mm across 1,000 sampled nodule–angle pairs) and then tested empirically: both boundary-loss configurations were re-trained with the SDF recomputed on-the-fly from the rotated mask across all 5 seeds. Paired comparisons showed no statistically significant difference for either configuration (all p > 0.11), confirming the rotation approximation is not a contributing factor to the null result.
 
-### 6.3 Single-Architecture-Family Scope
-Only the 3D U-Net family was evaluated; no attention mechanisms, transformer blocks, or other architectures were tested.
+### 6.3 Boundary-Loss Weight Ceiling
+The null result on boundary-loss weighting is specific to $\\lambda_{max} = 0.05$. Higher weights were not explored due to the observed gradient-starvation diagnosis.
 
-### 6.4 Boundary-Loss Weight Ceiling
-The null result on boundary-loss weighting is specific to $\lambda_{max} = 0.05$. Higher weights were not explored due to the observed gradient-starvation diagnosis.
-
-### 6.5 Single Dataset
+### 6.4 Single Dataset
 Results are specific to LIDC-IDRI; generalization to other pulmonary nodule datasets or other 3D segmentation tasks is not claimed.
 
-### 6.6 Test-Set Evaluation
+### 6.5 Test-Set Evaluation
 The held-out test set was evaluated once under one-look discipline; test-set numbers did not trigger any post-hoc model, loss, or hyperparameter changes.
-'''
-
-output_path = Path("/mnt/agents/output/methodology.md")
-output_path.write_text(content, encoding="utf-8")
-print(f"Saved: {output_path}")
-print(f"Size: {len(content)} bytes")
