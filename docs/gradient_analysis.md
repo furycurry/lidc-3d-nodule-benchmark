@@ -86,6 +86,9 @@ This diagnosis directly explains the statistical null result:
 - If the boundary term contributes ~0.05% of gradient magnitude, its presence or absence, and the exact schedule of its application, should produce no measurable difference in final model parameters.
 - This is exactly what the N = 5 multi-seed experiment observed.
 
+### 4.4 The Test-Time Generalization Gap Does Not Confound This Diagnosis
+The held-out test-set evaluation (see `statistical_analysis.md`, "Held-Out Test-Set Evaluation") found that distance metrics (HD95, HD100, ASSD) are consistently worse on test than on validation, while Dice and IoU generalize well. This gap is essentially the same size and direction for the baseline and both boundary-loss configurations — it is not larger or smaller for the configurations that use the boundary term. A gradient-starved loss term that has no measurable effect on training should also have no effect on how the model generalizes to held-out data, and that is what is observed: the three configurations remain statistically indistinguishable from one another on the test set (all p > 0.17) even though all three show the same validation-to-test distance-metric gap. The generalization gap is therefore a property of the architecture/dataset combination, not evidence against the gradient-starvation explanation.
+
 ---
 
 ## 5. Implications
@@ -93,32 +96,29 @@ This diagnosis directly explains the statistical null result:
 ### 5.1 For This Project
 The null result is not a failure of experimental design or a Type II error due to insufficient seeds. It is a **mechanistically expected outcome** given the measured gradient share. This elevates the project's conclusion from:
 
-&gt; "No significant difference was found between boundary-loss weighting strategies."
+> "No significant difference was found between boundary-loss weighting strategies."
 
 to:
 
-&gt; "Boundary loss showed no effect **because it was gradient-starved by design** at the tested weight ceiling ($\lambda_{max} = 0.05$), not because the gating timing was wrong."
+> "Boundary loss showed no effect **because it was gradient-starved by design** at the tested weight ceiling ($\lambda_{max} = 0.05$), not because the gating timing was wrong."
 
 The latter is a stronger, more scientifically complete finding for a report's Discussion or Limitations section.
 
-**Converging evidence:** The gradient-starvation diagnosis makes three testable predictions:
-1. The null result should replicate on held-out data (one-look test set) — **confirmed**: all pairwise test-set comparisons non-significant (all p &gt; 0.17).
-2. The null result should persist under corrected, non-truncated SDFs — **confirmed**: 10 retraining runs, all p &gt; 0.11.
-3. The null result should persist under rotation-corrected SDFs — **confirmed**: 10 retraining runs, all p &gt; 0.11.
+**Converging evidence:** The gradient-starvation diagnosis makes three testable predictions, all independently confirmed:
+
+1. The null result should persist under corrected, non-truncated SDFs — **confirmed**: 10 retraining runs, all p > 0.11 (see `statistical_analysis.md`, "SDF-Approximation Verification").
+2. The null result should persist under rotation-corrected SDFs — **confirmed**: 10 retraining runs, all p > 0.11.
+3. The null result should replicate on held-out data (one-look test set) — **confirmed**: all pairwise test-set comparisons non-significant, minimum p = 0.1718 (see `statistical_analysis.md`, "Held-Out Test-Set Evaluation").
 
 In total, 35 independent training runs (15 original + 10 truncation-corrected + 10 rotation-corrected) plus 15 test-set evaluations all converge on the same null result, consistent with a single mechanistic cause.
 
 ### 5.2 Future Directions
 
-If boundary loss is to be made effective in this setting, the gradient-magnitude 
-disparity must be addressed. Potential directions include:
+If boundary loss is to be made effective in this setting, the gradient-magnitude disparity must be addressed. Potential directions include:
 
-- **Dynamic gradient balancing** (e.g., GradNorm) to enforce gradient-magnitude 
-  parity between boundary and regional terms.
-- **Higher λ_max with stronger stabilization** (e.g., gradient clipping, alternate 
-  SDF formulations) to increase the boundary term's influence.
-- **Architecture modifications** that increase sensitivity to boundary cues 
-  (e.g., explicit edge-detection branches).
+- **Dynamic gradient balancing** (e.g., GradNorm) to enforce gradient-magnitude parity between boundary and regional terms.
+- **Higher λ_max with stronger stabilization** (e.g., gradient clipping, alternate SDF formulations) to increase the boundary term's influence.
+- **Architecture modifications** that increase sensitivity to boundary cues (e.g., explicit edge-detection branches).
 
 These are left as future work.
 
@@ -130,7 +130,7 @@ These are left as future work.
 2. **Single seed.** The checkpoint comes from one random seed. However, the N = 5 multi-seed results show tight variance across seeds for the fixed-schedule config, suggesting seed-dependent gradient dynamics are unlikely.
 3. **Weight-specific.** The 0.05% figure is specific to $\lambda_{max} = 0.05$, and was computed from the fixed-schedule checkpoint, whose weight reaches and holds at the full 0.05 ceiling for the back half of training. The adaptive schedule's realized weight stayed well below this ceiling in all 5 seeds (max observed: 0.0231), so its true effective contribution was likely smaller than 0.05% for most of training — see Section 4.2. A higher weight ceiling would increase the effective share proportionally, but would also risk the catastrophic collapse that the clipping and warmup schedule were designed to prevent.
 4. **Batch-size dependence.** Gradient norms are batch-size dependent. The diagnostic used the same batch size (8) as training, so the relative share is internally consistent, but absolute norms would scale with batch size.
-5. **Confirmed predictions.** The four limitations above are methodological caveats on the diagnostic itself. The diagnosis's *predictions* — that the null result should replicate on held-out data and under corrected SDFs — have been independently confirmed by 20 additional training runs and 15 test-set evaluations, substantially reducing the risk that the 0.05% figure is an artifact of the specific checkpoint or seed chosen.
+5. **Confirmed predictions.** The four limitations above are methodological caveats on the diagnostic itself. The diagnosis's *predictions* — that the null result should persist under corrected SDFs and replicate on held-out data — have been independently confirmed by 20 additional training runs and 15 test-set evaluations, substantially reducing the risk that the 0.05% figure is an artifact of the specific checkpoint or seed chosen.
 
 ---
 
@@ -139,4 +139,5 @@ These are left as future work.
 The diagnostic script `grad_telemetry_check.py` is included in the repository under `scripts/`. It can be run against any saved checkpoint:
 
 ```bash
-python scripts/grad_telemetry_check.py --checkpoint outputs/archive/&lt;run_name&gt;/best_dice_unet3d.pt
+python scripts/grad_telemetry_check.py --checkpoint outputs/archive/<run_name>/best_dice_unet3d.pt
+```
