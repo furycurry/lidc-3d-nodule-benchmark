@@ -249,5 +249,8 @@ Under training-time random rotation (±0.3 rad per axis), the cached SDF is bili
 ### 6.3 Boundary-Loss Weight Ceiling
 The null result on boundary-loss weighting is specific to $\lambda_{max} = 0.05$. Higher weights were not explored due to the observed gradient-starvation diagnosis.
 
-### 6.4 Test-Set Evaluation and Generalization Gap
+### 6.4 Single Dataset
+Results are specific to LIDC-IDRI; generalization to other pulmonary nodule datasets or other 3D segmentation tasks is not claimed.
+
+### 6.5 Test-Set Evaluation and Generalization Gap
 The held-out test set was evaluated once under one-look discipline; test-set numbers did not trigger any post-hoc model, loss, or hyperparameter changes. Overlap metrics (Dice, IoU) generalized well from validation to test, but distance-based metrics (HD95, HD100, ASSD) showed a consistent test-time increase across all three configurations (roughly +1.1 to +1.4 mm for HD95/HD100, +0.23 to +0.42 mm for ASSD). Because this gap is uniform across baseline and both boundary-loss variants, it does not affect the paper's central comparison, but it is noted here as a property of this model/dataset combination that a reader relying on validation-set distance metrics alone should be aware of.
