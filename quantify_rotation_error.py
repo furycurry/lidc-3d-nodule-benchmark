@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""
+Rotation-under-augmentation SDF-error quantification.
+
+Isolates the ROTATION approximation specifically, independent of
+truncation (already handled via lidc_corrected_sdf_64.h5). Uses MONAI's
+own Rotate transform directly (not a hand-rolled reimplementation), so
+this is faithful to what RandRotated actually does when it fires with a
+given set of angles -- not an approximation of it. Deliberately does NOT
+set padding_mode, matching the real lidc_dataset.py's RandRotated call,
+which also doesn't set it -- inherits whatever MONAI's own default is,
+same as production.
+
+  (a) "current method": MONAI Rotate(mode="bilinear") applied directly
+      to the already-corrected 64^3 SDF -- exactly what lidc_dataset.py
+      does to its cached SDF under RandRotated.
+  (b) "correct method": MONAI Rotate(mode="nearest") applied to the WIDE
+      (128^3) binary mask -- matching how the label channel is already
+      correctly rotated -- THEN EDT computed on the rotated mask, THEN
+      cropped to 64^3 and clipped.
+
+NEEDS torch + monai (the training environment -- almost certainly the
+cluster, not the bare pylidc-only local workstation venv). Needs
+lidc_wide_masks_and_provenance.h5 and lidc_corrected_sdf_64.h5 present
+in the same place -- transfer both there first if not already (the
+corrected-SDF file is already on the cluster from the truncation
+experiment; the wide-masks file currently only lives on cyborg).
+
+Usage:
+    python quantify_rotation_error.py \
+        --wide-h5 lidc_wide_masks_and_provenance.h5 \
+        --sdf-h5 lidc_corrected_sdf_64.h5 \
+        --n-nodules 500 --n-angles-per-nodule 2 --seed 0
+"""
+import argparse
+import json
+
+import h5py
+import numpy as np
+import torch
+from scipy.ndimage import distance_transform_edt
+from monai.transforms import Rotate
+
+
+def signed_distance(mask):
+    mask = mask.astype(bool)
+    if not mask.any():
+        return np.full(mask.shape, 1e6, dtype=np.float32)
+    if mask.all():
+        return np.full(mask.shape, -1e6, dtype=np.float32)
+    inside = distance_transform_edt(mask)
+    outside = distance_transform_edt(~mask)
+    return (outside - inside).astype(np.float32)
+
+
+def center_crop(volume, size):
+    c = np.array(volume.shape) // 2
+    h = size // 2
+    return volume[c[0]-h:c[0]-h+size, c[1]-h:c[1]-h+size, c[2]-h:c[2]-h+size]
+
+
+def to_tensor(arr):
+    return torch.from_numpy(arr).float().unsqueeze(0)  # add channel dim
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--wide-h5", required=True)
+    ap.add_argument("--sdf-h5", required=True)
+    ap.add_argument("--target-size", type=int, default=64)
+    ap.add_argument("--clip", type=float, default=20.0)
+    ap.add_argument("--boundary-band", type=float, default=5.0)
+    ap.add_argument("--rotation-range-rad", type=float, default=0.3)
+    ap.add_argument("--n-nodules", type=int, default=500)
+    ap.add_argument("--n-angles-per-nodule", type=int, default=2)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--out-report", default="rotation_error_report.json")
+    args = ap.parse_args()
+
+    rng = np.random.default_rng(args.seed)
+
+    with h5py.File(args.wide_h5, "r") as wf, h5py.File(args.sdf_h5, "r") as sf:
+        keys = sorted(wf["wide_masks"].keys())
+        n = min(args.n_nodules, len(keys))
+        sample_keys = sorted(rng.choice(keys, size=n, replace=False).tolist())
+
+        results = []
+        print(f"Quantifying rotation error across {n} nodules, "
+              f"{args.n_angles_per_nodule} angle draws each...")
+
+        for i, key in enumerate(sample_keys):
+            wide_mask = wf["wide_masks"][key][()]
+            sdf_64_base = sf["sdf"][key][()]
+
+            for _ in range(args.n_angles_per_nodule):
+                angles = tuple(rng.uniform(-args.rotation_range_rad,
+                                            args.rotation_range_rad, size=3).tolist())
+                rotate_bilinear = Rotate(angle=angles, keep_size=True, mode="bilinear")
+                rotate_nearest = Rotate(angle=angles, keep_size=True, mode="nearest")
+
+                current_t = rotate_bilinear(to_tensor(sdf_64_base))
+                current = current_t.squeeze(0).numpy()
+                current = np.clip(current, -args.clip, args.clip)
+
+                rotated_wide_t = rotate_nearest(to_tensor(wide_mask.astype(np.float32)))
+                rotated_mask = rotated_wide_t.squeeze(0).numpy() > 0.5
+                sdf_full = signed_distance(rotated_mask)
+                correct = np.clip(center_crop(sdf_full, args.target_size), -args.clip, args.clip)
+
+                diff = np.abs(current - correct)
+                near_boundary = np.abs(correct) < args.boundary_band
+
+                results.append({
+                    "key": key,
+                    "angles_rad": list(angles),
+                    "mean_abs_diff": float(diff.mean()),
+                    "max_abs_diff": float(diff.max()),
+                    "mean_abs_diff_near_boundary": float(diff[near_boundary].mean()) if near_boundary.any() else 0.0,
+                })
+
+            if (i + 1) % 100 == 0:
+                print(f"  ...{i+1}/{n}")
+
+    mean_diffs = np.array([r["mean_abs_diff"] for r in results])
+    boundary_diffs = np.array([r["mean_abs_diff_near_boundary"] for r in results])
+
+    print("\n" + "=" * 70)
+    print("ROTATION-APPROXIMATION SDF ERROR SUMMARY")
+    print("=" * 70)
+    print(f"  Samples: {len(results)} (nodules x angle draws)")
+    print(f"  Whole-patch mean |current - correct| SDF error: {mean_diffs.mean():.3f}mm "
+          f"(max {mean_diffs.max():.3f}mm)")
+    print(f"  Near-boundary (within {args.boundary_band}mm) mean error: {boundary_diffs.mean():.3f}mm "
+          f"(max {boundary_diffs.max():.3f}mm)")
+
+    with open(args.out_report, "w") as f:
+        json.dump({
+            "n_samples": len(results),
+            "whole_patch_mean_abs_diff_mm": float(mean_diffs.mean()),
+            "near_boundary_mean_abs_diff_mm": float(boundary_diffs.mean()),
+            "per_sample": results,
+        }, f, indent=2)
+    print(f"\n  Wrote per-sample detail to {args.out_report}")
+
+
+if __name__ == "__main__":
+    main()

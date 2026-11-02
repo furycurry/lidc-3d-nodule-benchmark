@@ -5,13 +5,7 @@ import torch.nn as nn
 class BoundaryLoss(nn.Module):
     """
     Boundary Loss (Kervadec et al., 2019), stabilized with SDF clipping.
-
-    Raw signed distance fields can have large magnitude far from the object
-    boundary (tens of voxels in this dataset). Without clipping, the loss
-    is dominated by distant background voxels, creating a strong incentive
-    for the model to collapse to predicting nothing (empty volumes), since
-    that trivially minimizes (pred_probs * sdf).mean() regardless of actual
-    segmentation quality. Clipping bounds this contribution.
+    Expects a precomputed SDF (see precompute_sdf.py), not computed on the fly.
     """
 
     def __init__(self, clip_value=20.0):
@@ -27,10 +21,7 @@ class BoundaryLoss(nn.Module):
 class DiceFocalBoundaryLoss(nn.Module):
     """
     Wraps an existing MONAI DiceFocalLoss and adds a weighted BoundaryLoss term.
-    boundary_weight is mutable (set externally by train.py) to support a
-    warmup schedule — the boundary term should not be applied at full
-    strength before the model has learned basic region-level segmentation
-    via Dice/Focal alone.
+    boundary_weight is mutable (set externally by train.py) to support a warmup schedule.
     """
 
     def __init__(self, dice_focal_loss, boundary_weight=0.05, clip_value=20.0):

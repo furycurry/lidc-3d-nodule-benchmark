@@ -1,0 +1,14 @@
+# Core training / evaluation stack
+torch>=2.0
+monai>=1.3
+h5py>=3.8
+numpy>=1.24
+scipy>=1.10
+scikit-learn>=1.2
+tqdm>=4.65
+
+# --- Local-machine-only, for src/build_hdf5.py (dataset extraction) ---
+# Not needed on the training cluster — only on a machine with LIDC-IDRI DICOM
+# access. Uncomment if running the extraction step:
+# pylidc>=0.2.3
+# pydicom>=2.4
