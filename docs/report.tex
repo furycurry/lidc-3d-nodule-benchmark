@@ -4,21 +4,29 @@
 \usepackage[T1]{fontenc}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
-\usepackage{tabularx}
-\usepackage{multirow}
 \usepackage{graphicx}
+\usepackage{multirow}
 \usepackage{microtype}
 \usepackage{url}
 \usepackage[hidelinks]{hyperref}
-
-\raggedbottom
+\usepackage{enumitem}
 \usepackage{sectsty}
+
 \allsectionsfont{\raggedright}
+\raggedbottom
+\setlist{nosep, leftmargin=*, topsep=2pt, partopsep=0pt}
+
+% Layout and float spacing adjustments
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\setlength{\intextsep}{8pt plus 2pt minus 2pt}
+\setlength{\abovecaptionskip}{3pt}
+\setlength{\belowcaptionskip}{3pt}
 
 \title{\textbf{On the Efficacy of Auxiliary Boundary Supervision in 3D Volumetric Nodule Segmentation: A Controlled Multi-Seed Benchmark and Gradient Telemetry Audit}}
 
 \author{
-  [Author Name]$^{1,*}$\\
+  Arnob Sarker$^{1,*}$\\
   $^{1}$School of Computer Science and Technology, [University / Institution Name]\\
   $^{*}$Corresponding author: \texttt{[author.email@institution.edu]}
 }
@@ -29,35 +37,35 @@
 \maketitle
 
 \begin{abstract}
-Auxiliary boundary losses based on signed distance field (SDF) surface formulations are widely deployed in biomedical image segmentation to regularize target object perimeters. However, empirical assessments often rely on single-seed trials, unverified preprocessing, or patient-overlapping data splits. In this work, we present a controlled, multi-seed ($N=5$) benchmark evaluating auxiliary boundary supervision for 3D pulmonary nodule segmentation on the LIDC-IDRI dataset (2,651 patches). Using a patient-disjoint $70/15/15$ split verified for distributional balance via Kolmogorov-Smirnov testing ($p>0.55$), we evaluate both a faithful 3D U-Net reimplementation (19.07\,M parameters) and a Vision Transformer hybrid (UNETR, 92.69\,M parameters) across three loss regimes: regional baseline (Dice + Focal), fixed-schedule boundary loss, and adaptive loss-velocity hysteresis gating. Before assessing test performance, we empirically audit and eliminate two potential preprocessing confounds via 20 complete re-training runs: patch-boundary SDF truncation (11.5\% of nodules; re-trained $p>0.11$) and continuous rotation interpolation error (0.240\,mm near-boundary error; re-trained $p>0.11$). Under a strict one-look protocol on the held-out test partition ($N=434$), boundary supervision fails to provide a statistically significant improvement over the regional baseline on either architecture across Dice, HD95, HD100, IoU, ASSD, or Normalized Surface Distance (NSD) at 1.0\,mm and 2.0\,mm tolerances (all $p\ge0.0512$). Direct gradient telemetry reveals the mechanistic root cause: the raw $L_{2}$ norm of the boundary gradient is two orders of magnitude smaller than that of the regional loss ($8.00\times10^{-6}$ vs. $8.55\times10^{-4}$), yielding an effective update share $\approx0.05\%$ on ConvNets and $\approx0.03\%$ on UNETR at standard weighting ($\lambda=0.05$). Causal weight scaling ($\lambda=0.50$) confirms that forcing a tenfold increase in boundary gradient magnitude fails to induce surface refinement, leaving validation Dice unchanged ($0.7406$). Furthermore, clinical stratification across radiologist consensus ratings disproves the hypothesis that boundary losses assist complex morphologies: on spiculated margins ($N=55$), boundary loss yields zero gain ($0.7431$ vs.\ $0.7429$, $p=0.9679$). Finally, the pure ConvNet decisively outperforms UNETR by +8.48 pooled test Dice points and 2.58\,mm lower HD95 ($p<0.001$, Cohen's $d=16.32$), while UNETR collapses on subtle, non-solid ground-glass lesions ($0.5349$ vs.\ $0.6670$). An extended 100-epoch probe establishes that this gap is structural rather than an artifact of training duration. We make our complete codebase, verified splits, and checkpoints publicly available at \url{https://github.com/furycurry/lidc-3d-nodule-benchmark}.
+Auxiliary boundary losses based on signed distance fields (SDF) are widely used to regularize biomedical image segmentation, yet many reported gains were not verified across multiple seeds, evaluated on patient-disjoint splits, or assessed with surface-distance metrics. We present a controlled, 5-seed benchmark evaluating boundary supervision for 3D pulmonary nodule segmentation on LIDC-IDRI (2,651 patches) using a verified patient-disjoint $70/15/15$ split. We evaluate a canonical 3D U-Net (19.07\,M parameters) and a Vision Transformer hybrid (UNETR, 92.69\,M parameters) across regional (Dice+Focal), fixed-schedule boundary, and adaptive hysteresis-gated loss regimes. Using 20 re-training runs, we find no evidence that two common preprocessing approximations, patch truncation and continuous rotation interpolation error, explain the null result (all $p>0.11$). On the full held-out test partition ($N=434$), boundary supervision yields no statistically significant improvement across overlap or surface metrics, including Dice, HD95, and Normalized Surface Distance (all $p\ge0.051$). Size-stratified analyses show no benefit for the ConvNet across any volume tier ($p \ge 0.120$) or for small lesions (UNETR, all $p \ge 0.203$). On medium lesions, UNETR displays a small fixed-schedule shift (+0.35 Dice points, $p=0.0017$) that narrowly survives test-wide Bonferroni correction but fails to reach full-cohort significance, while an adaptive shift (+0.66 points) arises largely in runs where the gate remained inactive. Gradient telemetry reveals boundary gradient norms are two orders of magnitude smaller than regional gradients (relative norm ratio $\approx0.94\%$, effective share $\approx0.05\%$), and a tenfold weight scaling probe ($\lambda=0.50$) fails to induce surface refinement. Clinical stratification indicates no benefit on spiculated margins ($p=0.968$). Finally, the 3D U-Net outperforms UNETR (+8.25 Dice points pooled, $p<0.001$), with UNETR degrading sharply on subtle, ground-glass opacities; an extended 100-epoch probe suggests this gap is structural rather than an artifact of training duration. Code and checkpoints: \url{https://github.com/furycurry/lidc-3d-nodule-benchmark}.
 \end{abstract}
 
 \section{Introduction}
 Precise boundary delineation of pulmonary nodules in thoracic computed tomography (CT) is fundamental to volumetric lung cancer screening and computer-aided diagnosis. However, regional loss functions such as soft Dice and cross-entropy variants evaluate overlap globally across the volume, which frequently leads to topological smoothing and localized surface inaccuracies on small, irregular lesions \cite{ma2021loss}.
 
-To penalize boundary deviations directly, Kervadec et~al.~\cite{kervadec2019boundary} proposed an auxiliary boundary loss based on precomputed signed distance fields (SDFs). While theoretical formulations suggest that surface integrals provide strong geometric regularization, reported empirical gains in medical segmentation literature exhibit substantial variance. Many published improvements rely on un-seeded single runs, omit patient-level disjoint partitioning (risking data leakage), or omit surface-distance evaluations entirely \cite{taha2015metrics}.
+To penalize boundary deviations directly, Kervadec et~al.~\cite{kervadec2019boundary} proposed an auxiliary boundary loss based on precomputed signed distance fields (SDFs). While theoretical formulations suggest that surface integrals provide strong geometric regularization, reported empirical gains in medical segmentation literature exhibit substantial variance. Many published improvements rest on single unseeded runs, lack patient-disjoint splits risking data leakage \cite{varoquaux2022machine}, or omit distance-based surface evaluation entirely.
 
 In this work, we present a hypothesis-driven benchmark evaluating the utility of auxiliary boundary supervision in 3D pulmonary nodule segmentation, addressing five core questions:
 \begin{enumerate}
-    \item Does auxiliary boundary supervision improve volumetric overlap (Dice, IoU) or surface distance metrics (HD95, ASSD, NSD) when evaluated across multiple random seeds on patient-disjoint partitions?
-    \item Are reported performance discrepancies attributable to common preprocessing approximations, such as patch-boundary distance field truncation or continuous rotation interpolation artifacts?
-    \item What is the exact gradient-level dynamic governing multi-task optimization when combining regional and boundary losses?
-    \item Does boundary supervision selectively assist complex or irregular nodule morphologies, such as spiculated margins, even if global overlap appears static?
-    \item How do inductive biases govern volumetric nodule segmentation when comparing canonical 3D convolutional networks against Vision Transformer hybrids under matched data regimes?
+    \item Does auxiliary boundary supervision improve volumetric overlap or surface distance metrics when evaluated across multiple random seeds on patient-disjoint partitions?
+    \item Are reported performance discrepancies attributable to common preprocessing approximations, such as patch truncation or rotation interpolation artifacts?
+    \item At the gradient level, how do regional and boundary losses interact during multi-task optimization?
+    \item Does boundary supervision selectively assist complex nodule morphologies, such as spiculated margins, even if global overlap appears static?
+    \item How do the inductive biases of a canonical 3D convolutional network and a Vision Transformer hybrid affect nodule segmentation under matched data conditions?
 \end{enumerate}
 
 \section{Benchmark Protocol and Methodology}
 
 \subsection{Dataset Curation and Partitioning}
-We utilize the public LIDC-IDRI cohort \cite{armato2011lidc}, comprising 1,018 thoracic CT scans. Volumetric patches ($64\times64\times64$) were extracted at an isotropic resolution of $1.0\,\text{mm}^{3}$ centered on radiologist-consensus nodule centroids ($N=2,651$). Native-grid crop radii were derived per scan as $r_{\text{crop}} = \lceil (32 + 2) / \mathbf{s} \rceil$, where $\mathbf{s}$ is the physical voxel spacing vector, preserving true physical dimensions under slice-thickness anisotropy. Ground truth masks represent the majority consensus ($\ge50\%$) among four thoracic radiologists.
+We used the public LIDC-IDRI cohort \cite{armato2011lidc}, comprising 1,018 thoracic CT scans. Volumetric patches ($64\times64\times64$) were extracted at an isotropic resolution of $1.0\,\text{mm}^{3}$ centered on radiologist-consensus nodule centroids ($N=2,651$). Native-grid crop radii were derived per scan as $r_{\text{crop}} = \lceil (32 + 2) / \mathbf{s} \rceil$, where $\mathbf{s}$ is the physical voxel spacing vector, preserving true physical dimensions under slice-thickness anisotropy. Ground truth masks represented the majority consensus ($\ge50\%$) among four thoracic radiologists.
 
-To eliminate patient-level data leakage, patches were partitioned strictly by unique patient identity: 70\% training ($N=1,833$, 609 patients), 15\% validation ($N=384$, 130 patients), and 15\% held-out test ($N=434$, 132 patients). Distributional consistency across nodule volume terciles was statistically audited using two-sample Kolmogorov-Smirnov (KS) tests: train vs.\ validation ($p=0.822$), train vs.\ test ($p=0.835$), and validation vs.\ test ($p=0.553$), confirming that metric differences reflect model generalizability rather than partition bias.
+To eliminate patient-level data leakage, patches were partitioned strictly by unique patient identity: 70\% training ($N=1,833$, 611 patients), 15\% validation ($N=384$, 132 patients), and 15\% held-out test ($N=434$, 132 patients). Distributional consistency across nodule volumes was statistically audited using two-sample Kolmogorov-Smirnov (KS) tests: train vs.\ validation ($p=0.822$), train vs.\ test ($p=0.835$), and validation vs.\ test ($p=0.553$), consistent with comparable volume distributions across partitions.
 
 \subsection{Architectures}
-We benchmark two distinct architectural paradigms:
+We evaluated two distinct architectural paradigms:
 \begin{enumerate}
     \item \textbf{UNet3DPaper}: A faithful reimplementation of the canonical 3D U-Net proposed by \c{C}i\c{c}ek et~al.~\cite{cicek20163d}, consisting of 19,073,665 trainable parameters, matching the original architecture with adjustments for same-padding, single-channel binary segmentation, and standard evaluation-time batch normalization.
-    \item \textbf{UNETR}: A hybrid Vision Transformer \cite{hatamizadeh2022unetr} utilizing a contracted ViT-Base encoder operating directly on non-overlapping $16 \times 16 \times 16$ voxel projections. For an input volume of $64^3$, this produces a sequence of $4 \times 4 \times 4 = 64$ tokens with embedding dimension $K=768$, processed across 12 transformer blocks with 12 self-attention heads and an MLP dimension of 3072. Multi-resolution skip connections extracted at layers 3, 6, 9, and 12 are reshaped and fed into a convolutional decoder utilizing successive transposed convolutions and residual blocks (92,685,521 trainable parameters; $4.86\times$ the parameter count of UNet3DPaper).
+    \item \textbf{UNETR}: A hybrid Vision Transformer \cite{hatamizadeh2022unetr} using a standard ViT-Base encoder operating directly on non-overlapping $16 \times 16 \times 16$ voxel projections. For an input volume of $64^3$, this produces a sequence of $4 \times 4 \times 4 = 64$ tokens with embedding dimension $K=768$, processed across 12 transformer blocks with 12 self-attention heads and an MLP dimension of 3072. Multi-resolution skip connections extracted at layers 3, 6, 9, and 12 were reshaped and fed into a convolutional decoder using successive transposed convolutions and residual blocks (92,685,521 trainable parameters; $4.86\times$ the parameter count of UNet3DPaper).
 \end{enumerate}
 
 \subsection{Loss Formulations and Supervision Schedules}
@@ -71,21 +79,21 @@ where $\mathcal{L}_{\text{regional}} = \mathcal{L}_{\text{Dice}} + \mathcal{L}_{
 \end{equation}
 where $\phi(x)$ is the signed distance transform of the ground truth boundary ($\phi < 0$ inside, $\phi > 0$ outside), and $S(x) \in [0,1]$ represents the predicted sigmoid probability. Distance fields were clipped to $[-20, 20]$\,mm to prevent gradient instability on background voxels.
 
-We benchmark three supervision schedules:
+We evaluated three supervision schedules:
 \begin{itemize}
     \item \textbf{Baseline}: Regional loss only ($\lambda = 0$).
     \item \textbf{Boundary Fixed}: Linear schedule ramping $\lambda$ from 0 to $\lambda_{\max} = 0.05$ between epochs 17 and 26, remaining fixed through epoch 50.
-    \item \textbf{Boundary Adaptive (PCG-BW)}: Predictive convergence-gated boundary weighting governed by validation-loss-velocity hysteresis gating ($\tau_{\text{enter}} = 0.005$, $\tau_{\text{exit}} = 0.02$, patience $= 3$, EMA smoothing $\alpha = 0.3$, $\lambda_{\max}=0.05$).
+    \item \textbf{Boundary Adaptive}: Predictive Convergence-Gated Boundary Weighting (PCG-BW) guided by validation loss-velocity hysteresis ($\tau_{\text{enter}} = 0.005$, $\tau_{\text{exit}} = 0.02$, patience $= 3$, Exponential Moving Average (EMA) smoothing $\alpha = 0.3$, $\lambda_{\max}=0.05$). On UNet3DPaper, the adaptive gate activated reliably between epochs 18 and 22 across all five seeds.
 \end{itemize}
 
 All models were trained for 50 epochs using AdamW (initial learning rate $1\times10^{-4}$, \texttt{ReduceLROnPlateau} decay with factor 0.5 and patience 5, weight decay $1\times10^{-5}$) with batch size 8 on an NVIDIA RTX 4090 GPU across five fixed random seeds (42, 123, 456, 789, 2024).
 
 \subsection{Surface Distance Metrics and Clinical Stratification}
-Volumetric overlap was quantified via Dice Similarity Coefficient (DSC) and Intersection over Union (IoU), while boundary delineation was evaluated using 95\% Hausdorff Distance (HD95), Average Symmetric Surface Distance (ASSD), and Normalized Surface Distance (NSD) at physical boundary tolerances of $\tau \in \{1.0\text{ mm}, 2.0\text{ mm}\}$:
+Volumetric overlap was quantified via Dice Similarity Coefficient (DSC) and Intersection over Union (IoU), while boundary delineation was evaluated using 95\% Hausdorff Distance (HD95), Average Symmetric Surface Distance (ASSD), and Normalized Surface Distance (NSD) at physical boundary tolerances of $\tau \in \{1.0\text{ mm}, 2.0\text{ mm}\}$ following standardized biomedical metric recommendations \cite{maierhein2024metrics, taha2015metrics}:
 \begin{equation}
 \text{NSD}_\tau = \frac{|\mathcal{S}_{\text{pred}} \cap \mathcal{B}_{\tau}(\mathcal{S}_{\text{gt}})| + |\mathcal{S}_{\text{gt}} \cap \mathcal{B}_{\tau}(\mathcal{S}_{\text{pred}})|}{|\mathcal{S}_{\text{pred}}| + |\mathcal{S}_{\text{gt}}|},
 \end{equation}
-where $\mathcal{B}_{\tau}(\mathcal{S})$ denotes the Euclidean distance ball of radius $\tau$ surrounding surface $\mathcal{S}$.
+where $\mathcal{B}_{\tau}(\mathcal{S})$ denotes the Euclidean distance ball of radius $\tau$ surrounding surface $\mathcal{S}$. 
 
 To assess performance across diagnostic complexity beyond geometric volume, test nodules ($N=434$) were stratified by consensus radiologist ratings (mean of 1--4 independent annotations from LIDC-IDRI metadata):
 \begin{itemize}
@@ -101,17 +109,17 @@ Prior to assessing held-out test generalization, we conducted empirical audits t
 \subsection{SDF Patch-Boundary Truncation Audit}
 Computing Euclidean distance transforms within a local $64^3$ patch assumes that the object is fully contained. A spatial audit revealed that 304 of 2,651 nodules (11.5\%) intersect the patch boundary, causing the distance transform to treat the patch edge as background. This artifact induced a near-boundary mean SDF error of 0.191\,mm in truncated nodules versus 0.023\,mm in fully contained nodules.
 
-To evaluate whether this truncation degraded boundary guidance, we recomputed non-truncated distance transforms using wide $128^3$ reference masks and re-trained both boundary configurations across all 5 seeds ($N=10$ full runs). Paired statistical testing against baseline runs revealed no significant difference in Dice, HD95, or IoU (all $p>0.11$). For adaptive boundary loss, mean validation Dice was identical (0.7348 vs.\ 0.7348). Truncation error is thus definitively ruled out as a driver of the null result.
+To evaluate whether this truncation degraded boundary guidance, we recomputed non-truncated distance transforms using wide $128^3$ reference masks and re-trained both boundary configurations across all 5 seeds ($N=10$ full runs) on UNet3DPaper. Tracking the peak validation metric recorded during training (\texttt{best\_val\_dice}), paired statistical testing against the original runs revealed no significant difference. For fixed boundary supervision, peak validation DSC was $0.7413 \pm 0.0020$ with truncated SDFs versus $0.7420 \pm 0.0014$ with non-truncated SDFs ($t(4) = 0.683$, $p = 0.5324$). For adaptive boundary loss, peak validation DSC was $0.7417 \pm 0.0037$ versus $0.7402 \pm 0.0016$ ($t(4) = -0.770$, $p = 0.4841$). Truncation error therefore does not explain the observed lack of boundary regularizing effect.
 
-\subsection{SDF Bilinear Rotation Audit}
-Data augmentation applies continuous 3D rotation ($\pm0.3$\,rad) to cached SDFs via bilinear interpolation, which smooths the gradient and violates the Eikonal condition ($|\nabla\phi|=1$). Across 1,000 nodule-angle samples, the mean near-boundary discrepancy between interpolated SDFs and exact recomputed SDFs was 0.240\,mm.
+\subsection{SDF Trilinear Rotation Audit}
+Data augmentation applies continuous 3D rotation ($\pm0.3$\,rad) to cached SDFs via trilinear interpolation, which smooths the gradient and violates the Eikonal condition ($|\nabla\phi|=1$). Across 1,000 nodule-angle samples, the mean near-boundary discrepancy between interpolated SDFs and exact recomputed SDFs was 0.240\,mm.
 
-We patched the data loader to compute exact Euclidean distance transforms on-the-fly from rotated binary masks and re-trained both boundary loss variants across all 5 seeds ($N=10$ runs). Paired statistical tests confirmed no significant divergence from cached-interpolation runs (all $p>0.11$), confirming that interpolation noise does not confound benchmark outcomes.
+We patched the data loader to compute exact Euclidean distance transforms on-the-fly from rotated binary masks and re-trained both boundary loss variants across all 5 seeds ($N=10$ runs) on UNet3DPaper. Paired statistical tests confirmed no significant divergence from cached-interpolation runs (all $p>0.11$), showing that interpolation noise does not confound benchmark outcomes.
 
 \begin{table*}[t]
 \centering
 \small
-\caption{Held-out test set performance ($N=434$) across $N=5$ matched seeds (mean $\pm$ standard deviation). Lower values indicate superior boundary precision for HD95, HD100, and ASSD. Higher values indicate superior surface agreement for NSD.}
+\caption{Held-out test performance ($N=434$) across $N=5$ matched seeds (mean $\pm$ standard deviation). Lower values indicate superior precision for HD95 and ASSD; higher values indicate superior agreement for Dice, IoU, and NSD. $\Delta\text{Dice} = \text{Test} - \text{Validation}$ denotes the generalization gap evaluated against checkpoint validation performance under the standardized offline evaluation script.}
 \label{tab:main_results}
 \vspace{4pt}
 \resizebox{\textwidth}{!}{%
@@ -134,39 +142,43 @@ UNETR           & Baseline (Dice+Focal) & $0.6439 \pm 0.0032$ & $0.5399 \pm 0.00
 \section{Results}
 
 \subsection{Held-Out Test Set Generalization}
-Under strict one-look discipline, all 30 checkpoints were evaluated on the held-out test partition ($N=434$, 132 patients) without post-hoc tuning. Table~\ref{tab:main_results} presents the definitive test metrics and validation-to-test generalization gaps.
+All 30 checkpoints were evaluated on the held-out test partition ($N=434$, 132 patients) under a strict single-evaluation protocol. Table~\ref{tab:main_results} presents test metrics and validation-to-test generalization gaps.
 
-\paragraph{Architecture-Agnostic Null Result} Across both architectures, boundary loss fails to improve test metrics over the regional baseline. On UNet3DPaper, paired $t$-tests and Wilcoxon signed-rank tests confirm no significant difference between baseline and fixed boundary weighting ($p=0.2579$ for Dice, $p=0.3513$ for HD95, $p=0.1718$ for ASSD, $p=0.2722$ for NSD@1.0mm, and $p=0.3493$ for NSD@2.0mm). Similarly, adaptive gating yields no improvement ($p=0.6679$ for Dice, $p=0.4818$ for HD95).
+\paragraph{Architecture-Agnostic Null Result} Across both architectures, boundary loss provides no statistically significant improvement over the regional baseline on the full test cohort. On UNet3DPaper, paired $t$-tests confirm no significant difference between baseline and fixed boundary weighting across metrics ($p=0.2579$ for Dice, $p=0.3513$ for HD95, $p=0.1718$ for ASSD, $p=0.2722$ for NSD@1.0mm, and $p=0.3493$ for NSD@2.0mm). Adaptive gating likewise shows no improvement ($p=0.6679$ for Dice, $p=0.4818$ for HD95).
 
-On UNETR, fixed boundary loss produces a nominal Dice shift of +0.0031, which fails to achieve statistical significance ($t$-test $p=0.0549$, Wilcoxon $p=0.0625$), while surface metrics remain equivalent (HD95 $p=0.4678$, ASSD $p=0.5693$, NSD@1.0mm $p=0.0512$, NSD@2.0mm $p=0.2226$). Adaptive boundary weighting on UNETR likewise demonstrates no significant effect ($p=0.1671$). The null result is therefore independent of the underlying network backbone and holds under physical surface distance metrics.
+On UNETR, fixed boundary loss yields a nominal shift of +0.0031 in full-cohort test Dice, but this does not reach statistical significance ($t$-test $p=0.0549$, Wilcoxon $p=0.0625$), while surface metrics remain essentially unchanged ($p=0.4678$ for HD95, $p=0.5693$ for ASSD, $p=0.0512$ for NSD@1.0mm, and $p=0.2226$ for NSD@2.0mm). Adaptive boundary weighting similarly demonstrates no significant effect on full-cohort Dice ($p=0.1671$). All full-cohort comparisons yield $p \ge 0.051$.
 
-\paragraph{ConvNet vs.\ Transformer Efficacy} UNet3DPaper outperforms UNETR across all evaluated metrics: +8.48 percentage points in pooled test Dice ($0.7287 \pm 0.0038$ vs.\ $0.6462 \pm 0.0029$), 2.58\,mm lower HD95 ($6.6916$\,mm vs.\ $9.2702$\,mm), half the average surface distance ($1.8135$\,mm vs.\ $3.4621$\,mm), and markedly superior surface coverage within 1.0\,mm ($86.8\%$ vs.\ $77.8\%$). In pooled cross-architecture testing ($N=15$), all pairwise differences are significant at $p<0.001$ with large effect sizes (Cohen's $d = 16.32$ on Dice, $d = -6.85$ on HD95, $d = +16.57$ on NSD@1.0mm). Furthermore, UNETR suffers more than three times the validation-to-test performance drop ($\Delta\text{Dice}=-0.0271$ vs.\ $-0.0076$).
+\paragraph{ConvNet vs.\ Transformer Efficacy} UNet3DPaper clearly outperforms UNETR across all evaluated metrics: +8.25 percentage points in pooled test Dice ($0.7287 \pm 0.0038$ vs.\ $0.6462 \pm 0.0029$), 2.58\,mm lower HD95 ($6.6916$\,mm vs.\ $9.2702$\,mm), roughly half the average surface distance ($1.8135$\,mm vs.\ $3.4621$\,mm), and markedly higher surface agreement within 1.0\,mm ($86.8\%$ vs.\ $77.8\%$). On the regional baseline alone, the ConvNet advantage is +8.64 Dice points (0.7303 vs.\ 0.6439). Furthermore, UNETR exhibits greater generalization drop from validation to test, possibly reflecting the reduced inductive bias of pure self-attention architectures on moderately sized volumetric datasets ($N=1,833$); on the baseline configuration, UNETR's test drop is 3.6 times that of the ConvNet ($-0.0271$ vs.\ $-0.0076$).
 
-\subsection{Volume-Stratified Tercile Dynamics}
-Performance stratified into nodule volume terciles (Table~\ref{tab:terciles}) reveals that UNet3DPaper displays monotonic scaling (Small $0.690 < \text{Medium } 0.740 < \text{Large } 0.768$). Crucially, boundary supervision provides no benefit even on small nodules ($<100$ voxels), where surface gradients were hypothesized to provide the strongest regularizing effect ($0.6900$ baseline vs.\ $0.6894$ fixed vs.\ $0.6863$ adaptive). Conversely, UNETR degrades severely on large nodules (0.6184), indicating that coarse $16^3$ patch tokenization struggles to resolve extended contiguous nodule margins.
+\subsection{Volume-Stratified Dynamics}
+Performance stratified across fixed nodule volume thresholds (Table~\ref{tab:terciles}) shows that UNet3DPaper scales monotonically with lesion size (Small $0.690 < \text{Medium } 0.740 < \text{Large } 0.768$). On UNet3DPaper, boundary supervision offers no benefit on small nodules ($<100$ voxels), where surface gradients were hypothesized to provide the strongest regularizing effect ($0.6900$ baseline vs.\ $0.6894$ fixed vs.\ $0.6863$ adaptive, all $p \ge 0.374$). 
 
-\begin{table}[t]
+Across 10 of the 12 volume-stratified Dice comparisons (2 architectures $\times$ 3 volume categories $\times$ 2 boundary loss schedules), boundary supervision yields no statistically significant difference (all $p \ge 0.120$). On UNETR for small nodules, boundary supervision produces no significant difference under fixed weighting ($0.6443 \pm 0.0055$ vs.\ $0.6500 \pm 0.0048$, $t(4) = 1.520, p = 0.2032$; Wilcoxon $W = 3.0, p = 0.3125$) or adaptive gating ($0.6503 \pm 0.0063$, $t(4) = 1.171, p = 0.3067$; all $p \ge 0.203$).
+
+The only subgroup exhibiting statistically detectable shifts is UNETR on medium nodules (100--500\,vx): the fixed schedule shows a small gain (+0.0035, $t(4) = 7.498, p = 0.00169$), while the adaptive schedule shows a +0.0066 shift ($t(4) = 6.551, p = 0.00281$). Under the isolated family of the 12 volume-stratified tests ($\alpha_{\text{bonf}} = 0.05 / 12 \approx 0.00417$), both shifts survive family-wise correction. However, under a test-wide family spanning all 28 boundary-vs-baseline comparisons on the test set (12 volume-stratified tests, 13 full-cohort metric comparisons across architectures, and 3 margin morphology tests; $K=28$, $\alpha_{\text{bonf}} = 0.05 / 28 \approx 0.00179$), the fixed medium shift only narrowly survives correction ($p = 0.00169$ vs.\ $\alpha_{\text{bonf}} \approx 0.00179$), while the adaptive shift fails to survive, and non-parametric Wilcoxon testing yields $p = 0.0625$ (the discrete mathematical floor for $N=5$). Importantly, because the adaptive gate never activated in 4 of the 5 UNETR seeds ($\lambda \equiv 0$), the adaptive medium shift arose largely in runs with no active boundary term---pointing to unisolated run-to-run variation or subtle code-path divergence in RNG consumption rather than boundary regularization. For the fixed schedule, the +0.35-point medium gain is modest and does not translate into full-cohort test significance across overlap or surface distance metrics ($p \ge 0.051$).
+
+\begin{table*}[t]
 \centering
 \small
-\caption{Held-out test set Dice across nodule volume terciles (mean $\pm$ standard deviation over 5 seeds).}
+\setlength{\tabcolsep}{5pt}
+\caption{Held-out test set Dice across fixed volumetric thresholds (mean $\pm$ standard deviation over 5 seeds). Counts per category are: Small ($N=148$), Medium ($N=175$), and Large ($N=111$), summing to $N=434$. Sample-weighted bin averages reconcile with Table~\ref{tab:main_results} when weighted by $N$.}
 \label{tab:terciles}
 \vspace{4pt}
-\resizebox{\columnwidth}{!}{%
 \begin{tabular}{llccc}
 \toprule
-\textbf{Architecture} & \textbf{Loss Configuration} & \textbf{Small} ($<100$\,vx) & \textbf{Medium} (100--500) & \textbf{Large} ($>500$\,vx) \\
+\textbf{Architecture} & \textbf{Loss Configuration} & \textbf{Small} & \textbf{Medium} & \textbf{Large} \\
+ & & ($<100$\,vx, $N=148$) & (100--500, $N=175$) & ($>500$\,vx, $N=111$) \\
 \midrule
-UNet3DPaper & Baseline (Dice+Focal) & $0.6900 \pm 0.0049$ & $0.7401 \pm 0.0029$ & $0.7684 \pm 0.0031$ \\
-            & Boundary (Fixed)      & $0.6894 \pm 0.0060$ & $0.7320 \pm 0.0074$ & $0.7679 \pm 0.0056$ \\
-            & Boundary (Adaptive)   & $0.6863 \pm 0.0052$ & $0.7405 \pm 0.0056$ & $0.7688 \pm 0.0068$ \\
+UNet3DPaper     & Baseline (Dice+Focal) & $0.6900 \pm 0.0049$ & $0.7401 \pm 0.0029$ & $0.7684 \pm 0.0031$ \\
+(19.07M params) & Boundary (Fixed)      & $0.6894 \pm 0.0060$ & $0.7320 \pm 0.0074$ & $0.7679 \pm 0.0056$ \\
+                & Boundary (Adaptive)   & $0.6863 \pm 0.0052$ & $0.7405 \pm 0.0056$ & $0.7688 \pm 0.0068$ \\
 \midrule
-UNETR       & Baseline (Dice+Focal) & $0.6443 \pm 0.0055$ & $0.6633 \pm 0.0024$ & $0.6184 \pm 0.0082$ \\
-            & Boundary (Fixed)      & $0.6598 \pm 0.0017$ & $0.6664 \pm 0.0018$ & $0.6173 \pm 0.0068$ \\
-            & Boundary (Adaptive)   & $0.6503 \pm 0.0063$ & $0.6641 \pm 0.0032$ & $0.6150 \pm 0.0082$ \\
+UNETR           & Baseline (Dice+Focal) & $0.6443 \pm 0.0055$ & $0.6598 \pm 0.0017$ & $0.6184 \pm 0.0082$ \\
+(92.69M params) & Boundary (Fixed)      & $0.6500 \pm 0.0048$ & $0.6633 \pm 0.0024$ & $0.6173 \pm 0.0068$ \\
+                & Boundary (Adaptive)   & $0.6503 \pm 0.0063$ & $0.6664 \pm 0.0018$ & $0.6150 \pm 0.0082$ \\
 \bottomrule
-\end{tabular}%
-}
-\end{table}
+\end{tabular}
+\end{table*}
 
 \begin{table*}[t]
 \centering
@@ -179,21 +191,21 @@ UNETR       & Baseline (Dice+Focal) & $0.6443 \pm 0.0055$ & $0.6633 \pm 0.0024$ 
 \toprule
 \textbf{Clinical Axis} & \textbf{Subgroup ($N$)} & \textbf{UNet3DPaper} & \textbf{UNETR} & \textbf{Cohen's $d$} & \textbf{$t$-test $p$} \\
 \midrule
-\multirow{3}{*}{Texture}
+\multirow{3}{*}{Texture} 
  & Non-Solid / GGN (51)      & $0.6670 \pm 0.0088$ & $0.5349 \pm 0.0121$ & $+7.49$  & $<0.001$ \\
  & Part-Solid (38)           & $0.6884 \pm 0.0081$ & $0.5683 \pm 0.0074$ & $+21.58$ & $<0.001$ \\
  & Solid (345)               & $0.7442 \pm 0.0029$ & $0.6684 \pm 0.0029$ & $+13.80$ & $<0.001$ \\
 \midrule
-\multirow{3}{*}{Subtlety}
+\multirow{3}{*}{Subtlety} 
  & Subtle $\le 2.5$ (64)     & $0.6485 \pm 0.0050$ & $0.5515 \pm 0.0043$ & $+12.46$ & $<0.001$ \\
  & Moderate 2.5--3.5 (114)   & $0.7119 \pm 0.0028$ & $0.6259 \pm 0.0035$ & $+17.19$ & $<0.001$ \\
  & Obvious $> 3.5$ (256)     & $0.7589 \pm 0.0015$ & $0.6751 \pm 0.0052$ & $+13.22$ & $<0.001$ \\
 \midrule
-\multirow{2}{*}{Spiculation}
+\multirow{2}{*}{Spiculation} 
  & Smooth $\le 2.0$ (379)    & $0.7284 \pm 0.0014$ & $0.6398 \pm 0.0034$ & $+19.65$ & $<0.001$ \\
  & Spiculated $> 2.0$ (55)   & $0.7431 \pm 0.0064$ & $0.6727 \pm 0.0033$ & $+11.19$ & $<0.001$ \\
 \midrule
-\multirow{3}{*}{Malignancy}
+\multirow{3}{*}{Malignancy} 
  & Low Suspicion $\le 2.5$ (160)     & $0.7224 \pm 0.0026$ & $0.6630 \pm 0.0036$ & $+10.65$ & $<0.001$ \\
  & Indeterminate 2.5--3.5 (211)      & $0.7212 \pm 0.0015$ & $0.6164 \pm 0.0034$ & $+22.71$ & $<0.001$ \\
  & High Suspicion $> 3.5$ (63)       & $0.7805 \pm 0.0047$ & $0.6879 \pm 0.0052$ & $+17.12$ & $<0.001$ \\
@@ -210,23 +222,23 @@ Smooth ($\le2.0$)    & Dice      & $0.7284 \pm 0.0014$ & $0.7243 \pm 0.0051$ & $
 \end{table*}
 
 \subsection{Clinical Attribute Subgroup Analysis}
-Table~\ref{tab:clinical_stratification} displays held-out test performance stratified across radiologist semantic attributes. On non-solid ground-glass nodules (GGN, $N=51$), which exhibit faint, hazy attenuation with ill-defined boundaries, UNETR collapses to $0.5349 \pm 0.0121$ ($d = +7.49$ vs.\ ConvNet). Similarly, on subtle lesions ($\le 2.5$), UNETR drops to $0.5515 \pm 0.0043$ ($d = +12.46$).
+Table~\ref{tab:clinical_stratification} displays held-out test performance stratified across radiologist semantic attributes. On non-solid ground-glass nodules (GGN, $N=51$), which exhibit faint attenuation and diffuse boundaries, UNETR drops to $0.5349 \pm 0.0121$ ($d = +7.49$ vs.\ ConvNet). Similarly, on subtle lesions ($\le 2.5$), UNETR drops to $0.5515 \pm 0.0043$ ($d = +12.46$).
 
-Crucially, the clinical stratification directly refutes the common hypothesis that boundary supervision selectively aids complex, irregular perimeters. On spiculated nodules ($N=55$, mean rating $>2.0$), UNet3DPaper under baseline Dice+Focal achieves $0.7431 \pm 0.0064$ versus $0.7429 \pm 0.0060$ under fixed boundary loss ($t$-test $p = 0.9679$, Wilcoxon $p = 1.0000$). Normalized Surface Distance within 1.0\,mm likewise confirms the absence of boundary refinement ($0.8711$ vs.\ $0.8698$, $p = 0.7120$). Boundary supervision provides no utility even when perimeter irregularity is maximized.
+Importantly, clinical stratification does not support the hypothesis that boundary supervision selectively aids irregular perimeters. On spiculated nodules ($N=55$, mean rating $>2.0$), UNet3DPaper under baseline Dice+Focal achieves $0.7431 \pm 0.0064$ versus $0.7429 \pm 0.0060$ under fixed boundary loss ($t$-test $p = 0.9679$, Wilcoxon $p = 1.0000$). Normalized Surface Distance within 1.0\,mm shows a similar absence of surface refinement ($0.8711$ vs.\ $0.8698$, $p = 0.7120$). Boundary supervision gave no benefit even on the most irregular margins.
 
-\section{Mechanistic Gradient Telemetry}
+\section{Gradient Telemetry and Loss Dynamics}
 
-\subsection{Layer-Wise Gradient Telemetry}
-To determine why boundary loss fails to regularize representations, we captured layer-wise gradient norms throughout training.
+\subsection{Global Gradient Norm Dynamics}
+To analyze why boundary loss fails to regularize representations, we tracked global parameter gradient norms throughout training.
 
-As documented in Table~\ref{tab:telemetry}, the raw $L_{2}$ gradient norm of the boundary term is two orders of magnitude smaller than that of the regional loss ($8.00\times10^{-6}$ vs.\ $8.55\times10^{-4}$), accounting for only 0.94\% of the raw backpropagated update on UNet3DPaper. At the standard weighting of $\lambda=0.05$, the effective gradient magnitude contributed by the boundary loss falls to $\approx0.05\%$. On UNETR, gradient starvation is even more pronounced: raw boundary share is 0.64\%, yielding an effective share of only $\approx0.03\%$ at $\lambda=0.05$.
+As documented in Table~\ref{tab:telemetry}, the raw $L_{2}$ gradient norm of the boundary term is two orders of magnitude smaller than that of the regional loss ($8.00\times10^{-6}$ vs.\ $8.55\times10^{-4}$), representing a relative norm ratio of only 0.94\% on UNet3DPaper. At the standard weighting of $\lambda=0.05$, the effective gradient magnitude contributed by the boundary loss falls to $\approx0.05\%$. On UNETR, this gradient disparity is slightly wider: raw relative boundary share is 0.64\%, yielding an effective share of $\approx0.03\%$ at $\lambda=0.05$. In other words, the boundary loss contributes too little gradient to change either overlap or surface-distance metrics alongside the dominant regional objective.
 
-Furthermore, under adaptive gating on UNETR, 4 of 5 seeds never activated the gate because loss-velocity improvements were non-consecutive, failing the 3-epoch patience requirement. The boundary loss is starved of gradient influence, explaining why its addition leaves overlap and surface distance metrics unchanged.
+Under adaptive gating on UNETR, 4 of 5 seeds never activated the boundary weighting because validation-loss improvements did not meet the 3-epoch consecutive patience threshold ($\lambda(t) \equiv 0$). Across these four non-activating seeds, the mean difference relative to baseline was $+0.0021 \pm 0.0037$, isolating the empirical stochastic noise floor of optimization. In contrast, Seed~123 showed a difference of $+0.0108$ ($0.6396$ to $0.6504$), though this larger difference coincided with a baseline run below the baseline mean ($0.6396$ vs.\ $0.6439$). Consequently, the overall adaptive comparison ($p=0.1671$) effectively evaluates an isolated regularized seed diluted across four stochastic baseline-equivalent runs.
 
 \begin{table}[t]
 \centering
 \small
-\caption{Gradient telemetry and loss dynamics logged across training epochs for UNet3DPaper and UNETR.}
+\caption{Epoch-averaged global gradient norm telemetry and loss dynamics for UNet3DPaper and UNETR.}
 \label{tab:telemetry}
 \vspace{4pt}
 \resizebox{\columnwidth}{!}{%
@@ -236,10 +248,10 @@ Furthermore, under adaptive gating on UNETR, 4 of 5 seeds never activated the ga
 \midrule
 UNet3DPaper Regional Norm ($\|\nabla_\theta \mathcal{L}_{R}\|_2$) & $8.55 \times 10^{-4}$ \\
 UNet3DPaper Boundary Norm ($\|\nabla_\theta \mathcal{L}_{B}\|_2$) & $8.00 \times 10^{-6}$ \\
-UNet3DPaper Raw Gradient Share & 0.94\% \\
+UNet3DPaper Relative Gradient Ratio ($\|\nabla \mathcal{L}_{B}\|_2 / \|\nabla \mathcal{L}_{R}\|_2$) & 0.94\% \\
 UNet3DPaper Effective Share ($\lambda=0.05$) & $\approx0.05\%$ \\
 \midrule
-UNETR Raw Boundary Gradient Share & 0.64\% \\
+UNETR Relative Gradient Ratio & 0.64\% \\
 UNETR Effective Share ($\lambda=0.05$) & $\approx0.03\%$ \\
 UNETR Adaptive Gate Activations & 1 / 5 seeds \\
 \bottomrule
@@ -247,20 +259,20 @@ UNETR Adaptive Gate Activations & 1 / 5 seeds \\
 }
 \end{table}
 
-\subsection{Causal Weight Scaling Probe (\texorpdfstring{$\lambda = 0.50$}{lambda = 0.50})}
-To confirm that the null result was governed by gradient magnitude starvation rather than an under-tuned weighting coefficient, an exploratory ablation scaling the target boundary weight tenfold ($\lambda_b = 0.50$, targeting an effective gradient share of $\approx 0.5\%$) was evaluated on Seed~42 under the identical warmup schedule. The run completed without numerical divergence, yielding a last-10-epoch validation DSC of $0.7406 \pm 0.0032$ and HD95 of $5.2741 \pm 0.2199$\,mm (compared to $0.7402$ DSC and $5.3620$\,mm HD95 under standard $\lambda_b = 0.05$). The absence of measurable surface or overlap refinement under a $10\times$ weight scaling demonstrates that within stable clipping bounds ($\pm 20$\,mm), the boundary term operates as uninformative gradient noise relative to the regional objective rather than an active regularizer.
+\subsection{Exploratory Weight Scaling Probe (\texorpdfstring{$\lambda = 0.50$}{lambda = 0.50})}
+To test whether gradient magnitude starvation could be alleviated by a larger weighting coefficient, an exploratory ablation scaling the target boundary weight tenfold ($\lambda_b = 0.50$, targeting an effective share of $\approx 0.5\%$) was evaluated on Seed~42 under the identical warmup schedule. The run completed without numerical divergence, yielding a last-10-epoch validation DSC of $0.7406 \pm 0.0032$ and HD95 of $5.2741 \pm 0.2199$\,mm (mean $\pm$ standard deviation across the final 10 epochs of this single-seed run; compared to $0.7402$ DSC and $5.3620$\,mm HD95 under standard $\lambda_b = 0.05$). While the run remained numerically stable within the $[-20, 20]$\,mm clipping bounds, the tenfold increase in boundary weighting produced no measurable change under this setting (single seed).
 
 \section{Discussion and Limitations}
 
-\paragraph{Refutation of Under-Training in Vision Transformers}
-To verify that UNETR's performance gap was not an artifact of truncating training at 50 epochs, an extended 100-epoch baseline run was evaluated on Seed~42 (surpassing the 20,000-iteration budget of the original paper). Validation DSC reached a ceiling of $0.6914$ at Epoch~97 with a last-10-epoch plateau of $0.6857 \pm 0.0035$ (compared to the 50-epoch baseline of $0.6770$). Because the model remained over 5 DSC points below the ConvNet ($0.7419 \pm 0.0015$) despite double the optimization exposure, the cross-architecture disparity is established as structural rather than an artifact of training duration.
+\paragraph{Training Duration in Vision Transformers}
+To check whether UNETR's lower performance was an artifact of training for 50 epochs, an extended 100-epoch baseline run was evaluated on Seed~42 (surpassing the 20,000-iteration budget in the original UNETR study). Validation DSC reached a peak of $0.6914$ at Epoch~97 with a last-10-epoch mean of $0.6857 \pm 0.0035$ (compared to a 50-epoch validation plateau of $0.6770$). Because UNETR remained more than 5 DSC points below the ConvNet's Seed~42 validation plateau ($0.7419 \pm 0.0015$, mean $\pm$ standard deviation across the final 10 epochs) despite double the optimization exposure, the performance gap suggests a structural limitation rather than under-training.
 
 \paragraph{Vulnerability of Vision Transformers to Low-Attenuation Lesions}
-While UNet3DPaper consistently improved with nodule size and conspicuousness, UNETR exhibited severe degradation on non-solid ground-glass nodules (GGN), dropping to DSC $0.5349 \pm 0.0121$ ($d = +7.49$ vs.\ ConvNet) and on subtle lesions (DSC $0.5515 \pm 0.0043$, $d = +12.46$). Without local translation-equivariant convolutional priors, the pure self-attention mechanism over coarse $16^3$ patch embeddings struggles to resolve faint intensity transitions where nodule boundaries merge gradually into pulmonary parenchyma.
+While UNet3DPaper improved steadily with nodule size and conspicuousness, UNETR showed notable degradation on non-solid ground-glass nodules (GGN), reaching DSC $0.5349 \pm 0.0121$ ($d = +7.49$ vs.\ ConvNet) and on subtle lesions (DSC $0.5515 \pm 0.0043$, $d = +12.46$). Without local translation-equivariant convolutional inductive biases, self-attention over coarse $16^3$ patch embeddings appears to struggle to resolve faint intensity transitions where nodule boundaries blend into surrounding lung parenchyma.
 
 \paragraph{Scope and Boundaries} Our findings reflect controlled conditions with specific methodological boundaries:
 \begin{enumerate}
-    \item \textbf{Centered-Patch Regime}: In line with common patch-level nodule benchmarking, inputs were restricted to $64^3$ volumes centered on radiologist-confirmed nodule coordinates. In end-to-end clinical workflows, false-positive suppression across full thoracic scans remains the dominant challenge.
+    \item \textbf{Centered-Patch Regime}: Inputs were restricted to $64^3$ volumes centered on radiologist-confirmed nodule coordinates. In clinical workflows, false-positive suppression across full scans remains the primary challenge.
     \item \textbf{Self-Configuring Pipelines}: We prioritized faithful implementations of canonical baselines under uniform preprocessing. Evaluating boundary loss behavior within automated heuristic frameworks such as nnU-Net \cite{isensee2021nnu} remains an avenue for future work.
     \item \textbf{Single-Cohort Constraint}: While internally partitioned under rigorous patient-disjoint constraints, generalizability across external cohorts (e.g., LNDb, NLST) was not evaluated.
 \end{enumerate}
@@ -268,9 +280,9 @@ While UNet3DPaper consistently improved with nodule size and conspicuousness, UN
 \paragraph{Reproducibility} All experiments were conducted on an NVIDIA RTX 4090 GPU (24\,GB VRAM) under CUDA 12.8 and PyTorch 2.5. Peak memory was 9.76\,GB for UNet3DPaper and 14.2\,GB for UNETR. Complete code, configuration files, and exact patient split indices are available in our public repository.
 
 \section{Conclusion}
-Through a controlled, multi-seed benchmark on LIDC-IDRI, we demonstrated that auxiliary boundary supervision provides no statistically significant benefit in volumetric pulmonary nodule segmentation across either 3D ConvNet or Vision Transformer backbones. Methodological audits confirmed that preprocessing approximations (truncation and rotation interpolation) do not confound this outcome. Gradient telemetry revealed that severe gradient magnitude starvation ($\approx0.05\%$ effective share on ConvNets, $\approx0.03\%$ on UNETR) prevents boundary loss from altering optimization trajectories, while a tenfold weight scaling probe ($\lambda = 0.50$) confirms the absence of regularization. Clinical attribute stratification further disproved the hypothesis that boundary terms assist complex margins: performance on spiculated nodules remained identical ($p=0.9679$). Finally, canonical ConvNets decisively outperformed Vision Transformers (+8.48 pooled Dice points), which collapsed on low-attenuation ground-glass opacities, with extended 100-epoch training confirming a structural ceiling. Our findings highlight the necessity of multi-seed evaluation, patient-disjoint splitting, and mechanistic telemetry when evaluating auxiliary objectives in medical image segmentation.
+Through a controlled, multi-seed benchmark on LIDC-IDRI, we found that auxiliary boundary supervision provides no statistically significant benefit for volumetric pulmonary nodule segmentation across either 3D ConvNets or Vision Transformers on the full test cohort ($p \ge 0.051$). Size-stratified sub-cohort evaluations show no regularizing effect for ConvNets across volume tiers ($p \ge 0.120$) or for small lesions (UNETR, all $p \ge 0.203$). On medium nodules in UNETR, the adaptive shift (+0.66 points) arises largely in runs where boundary loss was inactive, while the small fixed-schedule shift (+0.35 points) narrowly survives test-wide Bonferroni correction but does not achieve full-cohort significance ($p \ge 0.051$) and warrants external replication. Methodological audits found no evidence that common preprocessing approximations (truncation and rotation interpolation) explain this outcome. Gradient telemetry revealed that boundary loss contributes a negligible share of the effective gradient ($\approx0.05\%$ on ConvNets, $\approx0.03\%$ on UNETR), and an exploratory tenfold weight scaling probe ($\lambda = 0.50$) did not improve surface precision. Clinical attribute stratification further indicated that boundary terms provide no measurable benefit on spiculated margins ($p=0.968$). Finally, canonical ConvNets clearly outperformed Vision Transformers (+8.25 pooled Dice points), which showed marked performance drops on low-attenuation ground-glass opacities. Our findings highlight the importance of multi-seed evaluation, patient-disjoint partitioning, and gradient telemetry when assessing auxiliary objectives in biomedical image segmentation.
 
-\begin{thebibliography}{8}
+\begin{thebibliography}{99}
 
 \bibitem{armato2011lidc}
 S.~G. Armato~III et~al.
@@ -307,10 +319,20 @@ J.~Ma, J.~Chen, M.~Ng, R.~Huang, Y.~Li, C.~Li, X.~Yang, and A.~L. Martel.
 \newblock Loss odyssey in medical image segmentation.
 \newblock {\em Medical Image Analysis}, 71:102035, 2021.
 
+\bibitem{maierhein2024metrics}
+L.~Maier-Hein et~al.
+\newblock Metrics reloaded: recommendations for image analysis validation.
+\newblock {\em Nature Methods}, 21(2):195--212, 2024.
+
 \bibitem{taha2015metrics}
 A.~A. Taha and A.~Hanbury.
 \newblock Metrics for evaluating 3D medical image segmentation: analysis, selection, and tool.
 \newblock {\em BMC Medical Imaging}, 15(1):1--28, 2015.
+
+\bibitem{varoquaux2022machine}
+G.~Varoquaux and V.~Cheplygina.
+\newblock Machine learning for medical imaging: methodological failures and recommendations for the future.
+\newblock {\em npj Digital Medicine}, 5(1):48, 2022.
 
 \end{thebibliography}
 
