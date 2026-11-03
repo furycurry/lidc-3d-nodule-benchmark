@@ -1,6 +1,8 @@
 {
   "experiment_name": "boundary_adaptive_unet3d_paper_seed789",
+  "architecture": "unet3d_paper",
   "n_test_samples": 434,
+  "checkpoint_used": "/workspace/outputs/checkpoints/boundary_adaptive_unet3d_paper_seed789/best_dice_unet3d.pt",
   "dice": 0.7278500199317932,
   "hd95": 6.990898132324219,
   "hd100": 8.696649551391602,
@@ -465,5 +467,5 @@
     0.8023255813487019,
     0.7700534758946496
   ],
-  "eval_time_sec": 19.50959300994873
+  "eval_time_sec": 21.137232065200806
 }

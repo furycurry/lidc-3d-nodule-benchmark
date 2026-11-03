@@ -1,6 +1,8 @@
 {
   "experiment_name": "baseline_unet3d_paper_seed789",
+  "architecture": "unet3d_paper",
   "n_test_samples": 434,
+  "checkpoint_used": "/workspace/outputs/checkpoints/baseline_unet3d_paper_seed789/best_dice_unet3d.pt",
   "dice": 0.729448139667511,
   "hd95": 6.688894748687744,
   "hd100": 8.634384155273438,
@@ -465,5 +467,5 @@
     0.7999999999529411,
     0.7826086956096407
   ],
-  "eval_time_sec": 19.813359022140503
+  "eval_time_sec": 20.091877460479736
 }

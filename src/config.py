@@ -2,7 +2,7 @@ import torch
 from pathlib import Path
 
 # Paths
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 H5_PATH = BASE_DIR / "lidc_patches_int16.h5"
 SDF_H5_PATH = BASE_DIR / "lidc_sdf_cache.h5"
 OUTPUT_DIR = BASE_DIR / "outputs"
@@ -39,3 +39,10 @@ GATE_TAU_EXIT = 0.02      # velocity must rise above this to start counting towa
                           #  flicker when velocity hovers near a single threshold)
 GATE_PATIENCE = 3         # consecutive epochs required before actually flipping state
 WEIGHT_EMA_ALPHA = 0.3    # smooths the weight itself once active, avoids sudden jumps
+
+# Additional paths
+ARCHIVE_DIR = OUTPUT_DIR / "archive"
+ARCHIVE_SUMMARY_CSV = OUTPUT_DIR / "archive_summary.csv"
+ARCHIVE_EPOCH_CSV = OUTPUT_DIR / "archive_epoch_history.csv"
+MAPPING_PATH = BASE_DIR / "patch_patient_mapping.json"
+SPLIT_PATH = BASE_DIR / "train_val_test_split.json"

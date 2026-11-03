@@ -2,21 +2,24 @@
 """
 evaluate_test_set.py
 
-One-look test-set evaluation for the LIDC-IDRI 3D U-Net benchmark.
+One-look test-set evaluation for the LIDC-IDRI 3D benchmark.
+Runs checkpoints (best_dice_*.pt per config/seed) against the held-out
+434-patch test partition. Pure inference — no training, no SDF computation.
 
-Runs all 15 checkpoints (best_dice_unet3d.pt per config/seed) against the
-held-out 434-patch test partition.  Pure inference — no training, no SDF.
+Updates & Fixes:
+  - DataLoader instantiated once in main() to eliminate multiprocessing worker leaks.
+  - Dynamic checkpoint resolution across architecture-specific naming conventions.
+  - Safe 3D patch-size tuple resolution for UNETRPaper.
+  - Non-destructive summary merging (preserves previously sealed results).
+  - CLI argument (--arch) to select target architecture(s) without editing source.
 
-Saves:
-  - One JSON per (config, seed):  outputs/test_results/test_{experiment_name}.json
-  - Consolidated summary:         outputs/test_results/test_summary_all.json
-
-Usage (on cluster, from repo root):
+Usage:
     python src/evaluate_test_set.py
-
-Dependencies: torch, monai, numpy, config.py
+    python src/evaluate_test_set.py --arch unet3d_paper
+    python src/evaluate_test_set.py --arch unetr
 """
 
+import argparse
 import json
 import math
 import time
@@ -27,14 +30,19 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from monai.metrics import (
-    DiceMetric, HausdorffDistanceMetric,
-    ConfusionMatrixMetric, SurfaceDistanceMetric,
+    DiceMetric,
+    HausdorffDistanceMetric,
+    ConfusionMatrixMetric,
+    SurfaceDistanceMetric,
 )
-from monai.losses import DiceFocalLoss
 
 import config
 from lidc_dataset import LIDCDataset
 from unet3d_paper import UNet3DPaper
+try:
+    from unetr_paper import UNETRPaper
+except ImportError:
+    UNETRPaper = None
 
 # ------------------------------------------------------------------
 # Paths
@@ -43,7 +51,7 @@ CHECKPOINT_BASE = config.OUTPUT_DIR / "checkpoints"
 TEST_RESULTS_DIR = config.OUTPUT_DIR / "test_results"
 TEST_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-SPLIT_PATH = config.BASE_DIR / "train_val_test_split.json"
+SPLIT_PATH = getattr(config, "SPLIT_PATH", config.BASE_DIR / "train_val_test_split.json")
 
 # ------------------------------------------------------------------
 # Experimental design constants
@@ -51,13 +59,15 @@ SPLIT_PATH = config.BASE_DIR / "train_val_test_split.json"
 SEEDS = [42, 123, 456, 789, 2024]
 
 CONFIGS = {
-    "baseline":        "baseline_unet3d_paper",
-    "boundary_fixed":  "boundary_unet3d_paper",
-    "boundary_adaptive": "boundary_adaptive_unet3d_paper",
+    "baseline":          "baseline",
+    "boundary_fixed":    "boundary",
+    "boundary_adaptive": "boundary_adaptive",
 }
 
+DEFAULT_ARCHITECTURES = ["unetr"]
+
 # ------------------------------------------------------------------
-# Size bucket — must match train.py exactly
+# Distance-metric & size helpers
 # ------------------------------------------------------------------
 def size_bucket(voxel_count):
     if voxel_count < 100:
@@ -68,15 +78,12 @@ def size_bucket(voxel_count):
         return "large"
 
 
-# ------------------------------------------------------------------
-# Distance-metric aggregation — mirrors train.py's _aggregate_distance
-# ------------------------------------------------------------------
 max_patch_diag = math.sqrt(3 * (64 ** 2))
 max_patch_diag_tensor = torch.tensor(max_patch_diag, device=config.DEVICE, dtype=torch.float32)
 
 
 def aggregate_distance(metric, n_total, n_skipped):
-    """Aggregate a MONAI distance metric, penalising skipped samples."""
+    """Aggregate a MONAI distance metric, penalising skipped/empty samples."""
     if metric is None:
         return float("nan")
     raw = metric.aggregate()
@@ -111,24 +118,53 @@ def aggregate_distance(metric, n_total, n_skipped):
     return cat.mean().item()
 
 
+def resolve_checkpoint_path(experiment_name, architecture):
+    """Dynamically resolves checkpoint paths across architectures."""
+    candidates = [
+        CHECKPOINT_BASE / experiment_name / "best_dice_unet3d.pt",
+        CHECKPOINT_BASE / experiment_name / f"best_dice_{architecture}.pt",
+        CHECKPOINT_BASE / experiment_name / "best_dice_model.pt",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+
+    exp_dir = CHECKPOINT_BASE / experiment_name
+    if exp_dir.exists():
+        pts = list(exp_dir.glob("best_dice*.pt"))
+        if pts:
+            return pts[0]
+    return None
+
+
+def get_patch_size_tuple():
+    raw_size = getattr(config, "PATCH_SIZE", getattr(config, "TARGET_PATCH_SIZE", (64, 64, 64)))
+    if isinstance(raw_size, (list, tuple, np.ndarray)):
+        return tuple(int(x) for x in raw_size)
+    return (int(raw_size), int(raw_size), int(raw_size))
+
+
 # ------------------------------------------------------------------
 # Evaluate one checkpoint
 # ------------------------------------------------------------------
-def evaluate_one(experiment_name, test_keys, device):
-    ckpt_path = CHECKPOINT_BASE / experiment_name / "best_dice_unet3d.pt"
-    if not ckpt_path.exists():
-        print(f"  [SKIP] Checkpoint not found: {ckpt_path}")
+def evaluate_one(experiment_name, test_loader, device, architecture):
+    ckpt_path = resolve_checkpoint_path(experiment_name, architecture)
+    if ckpt_path is None:
+        print(f"  [SKIP] Checkpoint not found for experiment: {experiment_name}")
         return None
 
     print(f"  Loading checkpoint: {ckpt_path.name}")
-    test_ds = LIDCDataset(keys=test_keys, is_train=False, use_sdf=False)
-    test_loader = DataLoader(
-        test_ds, batch_size=config.BATCH_SIZE, shuffle=False,
-        num_workers=config.NUM_WORKERS, pin_memory=True,
-        persistent_workers=True,
-    )
 
-    model = UNet3DPaper(in_channels=1, out_channels=1).to(device)
+    if architecture == "unet3d_paper":
+        model = UNet3DPaper(in_channels=1, out_channels=1).to(device)
+    elif architecture == "unetr":
+        if UNETRPaper is None:
+            raise ImportError("unetr_paper.py not found or UNETRPaper failed to import.")
+        patch_size_3d = get_patch_size_tuple()
+        model = UNETRPaper(in_channels=1, out_channels=1, img_size=patch_size_3d).to(device)
+    else:
+        raise ValueError(f"Unknown architecture: '{architecture}'")
+
     ckpt = torch.load(ckpt_path, map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
@@ -204,11 +240,14 @@ def evaluate_one(experiment_name, test_keys, device):
     sensitivity, specificity, precision, f1 = [r.item() for r in cm_results]
     confusion_metric.reset()
 
+    # Micro-average IoU over all voxels (matching train.py final_val_iou convention)
     iou = tp_total / (tp_total + fp_total + fn_total + 1e-8)
 
     result = {
         "experiment_name": experiment_name,
-        "n_test_samples": len(test_keys),
+        "architecture": architecture,
+        "n_test_samples": sample_count,
+        "checkpoint_used": str(ckpt_path),
         "dice": float(mean_dice),
         "hd95": float(mean_hd95),
         "hd100": float(mean_hd100),
@@ -252,11 +291,23 @@ def evaluate_one(experiment_name, test_keys, device):
 # Main
 # ------------------------------------------------------------------
 def main():
+    parser = argparse.ArgumentParser(description="LIDC-IDRI Held-Out Test Set Evaluation")
+    parser.add_argument(
+        "--arch",
+        type=str,
+        nargs="+",
+        default=DEFAULT_ARCHITECTURES,
+        help="Architecture(s) to evaluate (e.g. --arch unet3d_paper or --arch unetr)",
+    )
+    args = parser.parse_args()
+    selected_architectures = args.arch
+
     print("=" * 72)
-    print(" LIDC-IDRI Test-Set Evaluation  —  One-Look, All 15 Checkpoints")
+    print(" LIDC-IDRI Test-Set Evaluation  —  One-Look Inference")
+    print(f" Target Architectures: {selected_architectures}")
     print("=" * 72)
 
-    device = torch.device(config.DEVICE)
+    device = torch.device(config.DEVICE if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Device: {device}")
 
     with open(SPLIT_PATH) as f:
@@ -264,36 +315,65 @@ def main():
     test_keys = split_data.get("test_keys", [])
     print(f"[INFO] Test set: {len(test_keys)} patches (held out)")
 
+    # Instantiate DataLoader ONCE to avoid multiprocessing worker pool leaks
+    test_ds = LIDCDataset(keys=test_keys, is_train=False, use_sdf=False)
+    test_loader = DataLoader(
+        test_ds,
+        batch_size=config.BATCH_SIZE,
+        shuffle=False,
+        num_workers=config.NUM_WORKERS,
+        pin_memory=True,
+        persistent_workers=(config.NUM_WORKERS > 0),
+    )
+
     all_results = {}
     missing_ckpts = []
 
-    for cfg_name, exp_prefix in CONFIGS.items():
-        print(f"\n--- {cfg_name.upper().replace('_', ' ')} ---")
-        for seed in SEEDS:
-            exp_name = f"{exp_prefix}_seed{seed}"
-            res = evaluate_one(exp_name, test_keys, device)
-            if res is not None:
-                all_results[exp_name] = res
-            else:
-                missing_ckpts.append(exp_name)
+    for architecture in selected_architectures:
+        for cfg_name, loss_prefix in CONFIGS.items():
+            print(f"\n--- {architecture.upper()} / {cfg_name.upper().replace('_', ' ')} ---")
+            for seed in SEEDS:
+                exp_name = f"{loss_prefix}_{architecture}_seed{seed}"
+                res = evaluate_one(exp_name, test_loader, device, architecture)
+                if res is not None:
+                    all_results[exp_name] = res
+                else:
+                    missing_ckpts.append(exp_name)
 
-    # Consolidated summary
+    n_expected = len(selected_architectures) * len(CONFIGS) * len(SEEDS)
+
+    # Consolidated summary: Non-destructive merge
+    summary_path = TEST_RESULTS_DIR / "test_summary_all.json"
+    if summary_path.exists():
+        with open(summary_path) as f:
+            existing_summary = json.load(f)
+        merged_results = existing_summary.get("results", {})
+        prior_architectures = existing_summary.get("architectures", [])
+    else:
+        merged_results = {}
+        prior_architectures = []
+
+    merged_results.update(all_results)
+    all_architectures = sorted(set(prior_architectures) | set(selected_architectures))
+
     summary = {
+        "architectures": all_architectures,
         "n_configs": len(CONFIGS),
         "n_seeds": len(SEEDS),
-        "n_expected": len(CONFIGS) * len(SEEDS),
-        "n_completed": len(all_results),
-        "missing_checkpoints": missing_ckpts,
-        "results": all_results,
+        "n_expected_this_run": n_expected,
+        "n_completed_this_run": len(all_results),
+        "n_completed_total": len(merged_results),
+        "missing_checkpoints_this_run": missing_ckpts,
+        "results": merged_results,
     }
-    summary_path = TEST_RESULTS_DIR / "test_summary_all.json"
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
 
     print("\n" + "=" * 72)
-    print(f" Completed: {len(all_results)}/{len(CONFIGS) * len(SEEDS)} evaluations")
+    print(f" This run ({selected_architectures}): {len(all_results)}/{n_expected} evaluations")
+    print(f" Cumulative total in summary file: {len(merged_results)}")
     if missing_ckpts:
-        print(f" Missing checkpoints: {missing_ckpts}")
+        print(f" Missing checkpoints this run: {missing_ckpts}")
     print(f" Summary JSON → {summary_path}")
     print("=" * 72)
     print("\n ONE-LOOK DISCIPLINE")

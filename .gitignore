@@ -1,10 +1,32 @@
+# Datasets and large binary blobs
 *.h5
+*.hdf5
+dataset/
+
+# Weights & checkpoints
 *.pt
-*.npz
+*.pth
+*.ckpt
+*.bin
 outputs/checkpoints/
 outputs/archive/
-wheelhouse/
+
+# Ephemeral scratch scripts & backups
+.scratch_scripts/
+*.bak
+*.bak*
 _old_code_backup/
+wheelhouse/
+wheelhouse-git-debs/
+.venv/
+venv/
 __pycache__/
 *.pyc
-.DS_Store
+
+# Runtime logs & temp images
+*.log
+*.png
+
+# Audit scratch files
+finalize_repo_audit.py
+verify_repo_artifacts.py

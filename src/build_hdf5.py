@@ -92,7 +92,7 @@ with h5py.File(OUTPUT_H5, "w") as h5f:
                 c_end = np.minimum(np.array(v_resampled.shape), r_ctr + half_p)
 
                 v_crop = v_resampled[c_start[0]:c_end[0], c_start[1]:c_end[1], c_start[2]:c_end[2]]
-                m_crop = m_resampled[c_start[0]:c_end[0], c_start[1]:c_end[1], m_start[2]:c_end[2]]
+                m_crop = m_resampled[c_start[0]:c_end[0], c_start[1]:c_end[1], c_start[2]:c_end[2]]
 
                 # Pad with -1000 HU (air) if touching scan boundaries
                 if v_crop.shape != tuple(TARGET_PATCH_SIZE):
