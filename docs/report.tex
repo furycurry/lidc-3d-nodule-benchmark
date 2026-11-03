@@ -26,7 +26,7 @@
 \title{\textbf{On the Efficacy of Auxiliary Boundary Supervision in 3D Volumetric Nodule Segmentation: A Controlled Multi-Seed Benchmark and Gradient Telemetry Audit}}
 
 \author{
-  Arnob Sarker$^{1,*}$\\
+  Arnob John$^{1,*}$\\
   $^{1}$School of Computer Science and Technology, [University / Institution Name]\\
   $^{*}$Corresponding author: \texttt{[author.email@institution.edu]}
 }
@@ -93,7 +93,7 @@ Volumetric overlap was quantified via Dice Similarity Coefficient (DSC) and Inte
 \begin{equation}
 \text{NSD}_\tau = \frac{|\mathcal{S}_{\text{pred}} \cap \mathcal{B}_{\tau}(\mathcal{S}_{\text{gt}})| + |\mathcal{S}_{\text{gt}} \cap \mathcal{B}_{\tau}(\mathcal{S}_{\text{pred}})|}{|\mathcal{S}_{\text{pred}}| + |\mathcal{S}_{\text{gt}}|},
 \end{equation}
-where $\mathcal{B}_{\tau}(\mathcal{S})$ denotes the Euclidean distance ball of radius $\tau$ surrounding surface $\mathcal{S}$.
+where $\mathcal{B}_{\tau}(\mathcal{S})$ denotes the Euclidean distance ball of radius $\tau$ surrounding surface $\mathcal{S}$. 
 
 To assess performance across diagnostic complexity beyond geometric volume, test nodules ($N=434$) were stratified by consensus radiologist ratings (mean of 1--4 independent annotations from LIDC-IDRI metadata):
 \begin{itemize}
@@ -151,7 +151,7 @@ On UNETR, fixed boundary loss yields a nominal shift of +0.0031 in full-cohort t
 \paragraph{ConvNet vs.\ Transformer Efficacy} UNet3D clearly outperforms UNETR across all evaluated metrics: +8.25 percentage points in pooled test Dice ($0.7287 \pm 0.0038$ vs.\ $0.6462 \pm 0.0029$), 2.58\,mm lower HD95 ($6.6916$\,mm vs.\ $9.2702$\,mm), roughly half the average surface distance ($1.8135$\,mm vs.\ $3.4621$\,mm), and markedly higher surface agreement within 1.0\,mm ($86.8\%$ vs.\ $77.8\%$). On the regional baseline alone, the ConvNet advantage is +8.64 Dice points (0.7303 vs.\ 0.6439). Furthermore, UNETR exhibits greater generalization drop from validation to test, possibly reflecting the reduced inductive bias of pure self-attention architectures on moderately sized volumetric datasets ($N=1,833$); on the baseline configuration, UNETR's test drop is 3.6 times that of the ConvNet ($-0.0271$ vs.\ $-0.0076$).
 
 \subsection{Volume-Stratified Dynamics}
-Performance stratified across fixed nodule volume thresholds (Table~\ref{tab:terciles}) shows that UNet3D scales monotonically with lesion size (Small $0.690 < \text{Medium } 0.740 < \text{Large } 0.768$). On UNet3D, boundary supervision offers no benefit on small nodules ($<100$ voxels), where surface gradients were hypothesized to provide the strongest regularizing effect ($0.6900$ baseline vs.\ $0.6894$ fixed vs.\ $0.6863$ adaptive, all $p \ge 0.374$).
+Performance stratified across fixed nodule volume thresholds (Table~\ref{tab:terciles}) shows that UNet3D scales monotonically with lesion size (Small $0.690 < \text{Medium } 0.740 < \text{Large } 0.768$). On UNet3D, boundary supervision offers no benefit on small nodules ($<100$ voxels), where surface gradients were hypothesized to provide the strongest regularizing effect ($0.6900$ baseline vs.\ $0.6894$ fixed vs.\ $0.6863$ adaptive, all $p \ge 0.374$). 
 
 Across 10 of the 12 volume-stratified Dice comparisons (2 architectures $\times$ 3 volume categories $\times$ 2 boundary loss schedules), boundary supervision yields no statistically significant difference (all $p \ge 0.120$). On UNETR for small nodules, boundary supervision produces no significant difference under fixed weighting ($0.6443 \pm 0.0055$ vs.\ $0.6500 \pm 0.0048$, $t(4) = 1.520, p = 0.2032$; Wilcoxon $W = 3.0, p = 0.3125$) or adaptive gating ($0.6503 \pm 0.0063$, $t(4) = 1.171, p = 0.3067$; all $p \ge 0.203$).
 
@@ -191,21 +191,21 @@ UNETR           & Baseline (Dice+Focal) & $0.6443 \pm 0.0055$ & $0.6598 \pm 0.00
 \toprule
 \textbf{Clinical Axis} & \textbf{Subgroup ($N$)} & \textbf{UNet3D} & \textbf{UNETR} & \textbf{Cohen's $d$} & \textbf{$t$-test $p$} \\
 \midrule
-\multirow{3}{*}{Texture}
+\multirow{3}{*}{Texture} 
  & Non-Solid / GGN (51)      & $0.6670 \pm 0.0088$ & $0.5349 \pm 0.0121$ & $+7.49$  & $<0.001$ \\
  & Part-Solid (38)           & $0.6884 \pm 0.0081$ & $0.5683 \pm 0.0074$ & $+21.58$ & $<0.001$ \\
  & Solid (345)               & $0.7442 \pm 0.0029$ & $0.6684 \pm 0.0029$ & $+13.80$ & $<0.001$ \\
 \midrule
-\multirow{3}{*}{Subtlety}
+\multirow{3}{*}{Subtlety} 
  & Subtle $\le 2.5$ (64)     & $0.6485 \pm 0.0050$ & $0.5515 \pm 0.0043$ & $+12.46$ & $<0.001$ \\
  & Moderate 2.5--3.5 (114)   & $0.7119 \pm 0.0028$ & $0.6259 \pm 0.0035$ & $+17.19$ & $<0.001$ \\
  & Obvious $> 3.5$ (256)     & $0.7589 \pm 0.0015$ & $0.6751 \pm 0.0052$ & $+13.22$ & $<0.001$ \\
 \midrule
-\multirow{2}{*}{Spiculation}
+\multirow{2}{*}{Spiculation} 
  & Smooth $\le 2.0$ (379)    & $0.7284 \pm 0.0014$ & $0.6398 \pm 0.0034$ & $+19.65$ & $<0.001$ \\
  & Spiculated $> 2.0$ (55)   & $0.7431 \pm 0.0064$ & $0.6727 \pm 0.0033$ & $+11.19$ & $<0.001$ \\
 \midrule
-\multirow{3}{*}{Malignancy}
+\multirow{3}{*}{Malignancy} 
  & Low Suspicion $\le 2.5$ (160)     & $0.7224 \pm 0.0026$ & $0.6630 \pm 0.0036$ & $+10.65$ & $<0.001$ \\
  & Indeterminate 2.5--3.5 (211)      & $0.7212 \pm 0.0015$ & $0.6164 \pm 0.0034$ & $+22.71$ & $<0.001$ \\
  & High Suspicion $> 3.5$ (63)       & $0.7805 \pm 0.0047$ & $0.6879 \pm 0.0052$ & $+17.12$ & $<0.001$ \\
