@@ -1,234 +1,210 @@
 # Methodology
 
-This document describes the complete methodological pipeline for 3D pulmonary nodule segmentation on the LIDC-IDRI dataset, including dataset construction, model architecture, loss functions, experimental protocol, and evaluation metrics.
+This document describes the full pipeline for the 3D pulmonary nodule segmentation benchmark on LIDC-IDRI: dataset construction, the two architectures, the loss functions, the experimental and test protocols, the robustness audits, and the evaluation metrics. Results are in `statistical_analysis.md` and `gradient_analysis.md`.
 
 ---
 
 ## 1. Dataset Construction
 
-### 1.1 Raw Data
-The Lung Image Database Consortium and Image Database Resource Initiative (LIDC-IDRI) comprises 1,018 thoracic CT scans, each with up to four radiologist annotations. Raw DICOM data (~124 GB) was accessed locally via the `pylidc` Python library. Only the extracted patch dataset was transferred to the training cluster; raw DICOMs never left the local workstation.
+### 1.1 Raw data
+LIDC-IDRI comprises 1,018 thoracic CT scans, each with up to four radiologist annotations. Raw DICOM data (about 124 GB) was accessed locally through the `pylidc` library. Only the extracted patch dataset was transferred to the training cluster. Raw DICOMs never left the local workstation.
 
-### 1.2 Patch Extraction
-For each scan, `pylidc`'s `cluster_annotations()` grouped individual radiologist contours into distinct nodules. For each nodule cluster:
+### 1.2 Patch extraction (`build_hdf5.py`)
+For each scan, `pylidc`'s `cluster_annotations()` (default parameters) groups radiologist contours into nodule clusters. Scans with no clusters produce no patches. 875 patients contribute at least one patch. For each cluster:
 
-- A **50% consensus binary mask** was generated via `pylidc.utils.consensus(cluster, clevel=0.5)`.
-- The centroid of the cluster's bounding box was computed in the original (pre-resample) voxel frame.
-- A physical window was cropped around the centroid and resampled to **isotropic 1.0 mm³** spacing (linear interpolation for image, nearest-neighbor for mask). This is necessary because LIDC-IDRI exhibits heterogeneous slice thickness (~0.6–5 mm) across scans; a fixed-voxel-dimension patch without resampling would represent inconsistent physical volumes.
-- Each patch was center-cropped/padded to exactly **64×64×64 voxels**. Padding (when a patch touches scan boundary) uses **−1000 HU** (physiological air value).
-- Images stored as **raw `int16` HU** (deliberately not pre-windowed/normalized — windowing is a lossy, irreversible operation deferred to data-loading time to preserve full radiometric fidelity).
-- Masks stored as **`uint8` binary**.
+- A **50% consensus binary mask** is built with `pylidc.utils.consensus(cluster, clevel=0.5)`: a voxel is foreground if at least half of the annotating radiologists included it. The threshold was fixed once and not ablated.
+- The centroid is the center of the consensus mask's bounding box in the native voxel grid.
+- A native-resolution window is cropped around the centroid. Its radius is spacing-aware per scan: `ceil((64/2 + 2) / orig_spacing)` per axis, with `orig_spacing = [slice_thickness, pixel_spacing, pixel_spacing]`, giving a 2 mm interpolation margin.
+- The window is resampled to **isotropic 1.0 mm³** with `scipy.ndimage.zoom` (`order=1` for the image, `order=0` for the mask). LIDC-IDRI slice thickness varies from about 0.6 to 5 mm, so without resampling a fixed 64³ patch would cover different physical volumes in different scans.
+- The result is center-cropped, or padded where the patch crosses the scan boundary, to **64×64×64** voxels. Image padding is −1000 HU (air) and mask padding is 0.
+- Images are stored as **raw `int16` HU**, not pre-windowed. Windowing is lossy and irreversible, so it is deferred to load time. Masks are stored as `uint8`.
 
-The extraction script used `scan.to_volume()` with a `(Y, X, Z) → (Z, Y, X)` transpose to align axes. No minimum nodule-size filter was applied; the dataset includes all annotated nodule sizes.
+No minimum nodule-size filter exists. Every clustered annotation yields one patch. Every patch is centered on a confirmed nodule, and the dataset contains no background-only patches.
 
-**Result:** `lidc_patches_int16.h5` — 2,651 patches, 924 MB (gzip-4 compressed).
+**Output:** `lidc_patches_int16.h5`, 2,651 patches, 924 MB (gzip level 4), keys `nodule_0000` to `nodule_2650`. Extraction finished with zero failed scans.
 
-### 1.3 Dataset Integrity Audit
-A comprehensive audit checked 12 categories: key alignment (images↔masks), shape consistency (all exactly 64³), dtype consistency, HU value range, NaN/Inf presence, mask binarity, empty-mask presence, exact-duplicate detection (via content hashing), patient-mapping completeness, and train/val/test split leakage.
+At load time, intensities are clamped to [−1000, 400] HU and scaled to [0, 1].
 
-**10/12 checks passed cleanly.** Two flagged items were investigated and confirmed benign:
-- **HU range outliers:** 132/2,651 patches showed minimum HU of exactly −2048 or −3024. Traced to a well-documented CT scanner artifact — out-of-reconstruction-field-of-view padding, common in raw DICOM data. Irrelevant to training since the data-loading pipeline clamps everything to [−1000, 400] HU regardless, making these values numerically indistinguishable from physiological air. One patch (`nodule_2211`) showed max HU of 4137, consistent with dense calcification.
-- **One exact duplicate pair:** `nodule_2400` and `nodule_2401` were byte-identical. Cross-referenced against patient mapping and confirmed to originate from the **same patient** (`LIDC-IDRI-0733`) — two close annotation clusters capturing overlapping tissue. Zero leakage risk since patient-level splitting guarantees both instances land in the same partition.
+### 1.3 Integrity audit
+An audit script checked 12 categories: key alignment, shape (all exactly 64³), dtype, HU range, NaN/Inf, mask binarity, empty masks, exact duplicates (content hash), patient-mapping completeness, and split leakage. Ten passed cleanly. Two flags were investigated and found benign:
 
-### 1.4 Patient Identity Reconstruction
-The HDF5 file does not natively store per-patch patient ID. A separate reconstruction script replays `pl.query(pl.Scan).all()` + `scan.cluster_annotations()` in the same order as the extraction script, assigning `scan.patient_id` sequentially to `nodule_XXXX` keys.
+- **HU range outliers:** 132 of 2,651 patches have a minimum of exactly −2048 or −3024 HU. These are out-of-field-of-view sentinel values in the source DICOMs. Load-time clamping to [−1000, 400] maps them to the same value as air. One patch (`nodule_2211`) reaches 4137 HU, consistent with dense calcification.
+- **One exact duplicate pair:** `nodule_2400` and `nodule_2401` are byte-identical and come from the same patient (`LIDC-IDRI-0733`), so patient-level splitting keeps them in one partition.
 
-**Validity was explicitly verified:** (a) both scripts use identical, unfiltered iteration logic; (b) the original extraction completed with **zero failed scans** — critical, because any failure would have caused desynchronization; (c) the reconstructed mapping produced **exactly 2,651 entries**, matching the original patch count exactly.
+A separate spatial check overlaid masks on images for 12 randomly sampled patches (14 to 7,808 foreground voxels) and found all 12 correctly aligned.
 
-**Known limitation:** this reconstruction approach carries an ordering-assumption risk that a "record patient_id at extraction time" approach would not have. This is noted as a methodological choice for future reproduction.
+### 1.4 Patient identity
+The HDF5 file stores no patient ID. `patch_patient_mapping.json` was reconstructed by replaying the scan and cluster iteration order of the extraction script. This relies on identical, deterministic ordering in both scripts. It was checked three ways: both scripts apply no filtering between cluster discovery and counter increment, the extraction had zero failed scans, and the mapping has exactly 2,651 entries. It was later confirmed by an independent re-derivation from a separate script run (`patch_patient_mapping_v2.json`), which matched on all 2,651 keys with no differences. Recording `patient_id` at extraction time would remove the ordering assumption and is the recommended approach for any rebuild.
 
-### 1.5 Patient-Level Data Partitioning
-A major data-leakage bug was found and fixed in early development: an initial implementation used `torch.randperm` over patch indices for an 80/20 split. Because a single patient can contribute multiple patches (verified range: 1–23 patches/patient, mean 3.03), this permitted patches from the same patient to appear in both training and validation — a disqualifying methodological error in medical imaging ML.
+### 1.5 Patient-level partitioning
+An early implementation split patch indices at random (`torch.randperm`, 80/20). A patient contributes 1 to 23 patches (mean 3.03), so patches from one patient could fall in both training and validation. This leakage was found and fixed before any reported result.
 
-**Fix:** `sklearn.model_selection.GroupShuffleSplit`, grouped by `PatientID`, producing a proper **3-way split** (train / validation / held-out test).
+The split now uses `sklearn.model_selection.GroupShuffleSplit` grouped by patient, in two stages: 15% of patients form the test set, then 17.65% of the remainder form the validation set (about 70/15/15). Thirty candidate seeds (0 to 29) were scored by pairwise two-sample Kolmogorov-Smirnov tests on nodule size (foreground voxel count) across the three partitions, and the seed with the highest minimum p-value was kept. **Seed 5** won, with p = 0.822 (train vs. val), 0.835 (train vs. test), and 0.553 (val vs. test).
 
-**Balance verification:** A 30-seed search evaluated each candidate split's pairwise Kolmogorov-Smirnov test on nodule-size (foreground voxel count) distribution across train/val/test. The winning seed (**seed = 5**) achieved a minimum pairwise p-value of **0.553** (train-val p = 0.822, train-test p = 0.835, val-test p = 0.553) — well above the 0.05 significance threshold, confirming no meaningful size-distribution skew.
+| Partition | Patches | Patients |
+|---|---|---|
+| Train | 1,833 | 611 |
+| Validation | 384 | 132 |
+| Test | 434 | 132 |
 
-**Final split:** **1,833 train / 384 val / 434 test** patches.
+Pairwise patient-set intersections are asserted empty at split creation and again on every `train.py` run. The split, seed, and KS p-values are stored in `train_val_test_split.json`. Stratification is on nodule size only.
 
-**Hard leakage guarantee:** Patient-set intersection assertions (train∩val, train∩test, val∩test all empty) are checked programmatically in `train.py` on every run.
+### 1.6 Clinical metadata
+Radiologist consensus ratings (spiculation, subtlety, texture) are kept outside the patch file in `nodule_clinical_metadata.json` and used only for post-hoc subgroup analysis. They are not model inputs. Per-radiologist contours are not retained, so inter-observer agreement and other consensus thresholds cannot be examined without re-extraction.
 
-**Held-out test discipline:** The test set has been evaluated exactly once (on the earlier, now-superseded MONAI baseline architecture). It has **not yet been evaluated** on the final `UNet3DPaper` architecture; this evaluation is deliberately deferred until all architecture/loss decisions are finalized (one-look discipline).
+### 1.7 Precomputed SDF cache
+`lidc_sdf_cache.h5` holds one signed distance field per mask (`distance_transform_edt` on foreground and background, combined as negative inside, positive outside, float32). It is computed once by `precompute_sdf.py` and checked byte-identical to fresh computation on five patches. It lives in its own file so the checksum-verified patch dataset stays immutable.
 
-### 1.6 Precomputed SDF Cache
-A separate file, `lidc_sdf_cache.h5`, stores a precomputed signed distance field (SDF) per mask. Computed once via `precompute_sdf.py` (~3.5 minutes for all 2,651 patches) rather than recomputed every training step, since the SDF depends only on the static ground-truth mask.
+Two approximations in this cache are audited in Section 6: truncation at the patch boundary and interpolation under rotation augmentation.
 
-**Motivation:** An early boundary-loss implementation computed the SDF on-the-fly via `scipy.ndimage.distance_transform_edt` inside the loss function, once per sample per epoch — a CPU-bound bottleneck. Precomputing removed this bottleneck entirely.
-
-**Correctness verified:** Cached SDF values confirmed byte-identical to fresh on-the-fly computation on 5 test patches (`max_diff = 0.000000`).
-
-**Documented caveat:** Under data augmentation (random rotation), the cached SDF is transformed via bilinear interpolation rather than exactly recomputed from the rotated mask — a deliberate speed/exactness tradeoff with low but nonzero geometric error. The validation set uses no augmentation, so its cached SDF is used exactly as computed, with zero approximation.
-
-The SDF cache is kept in a **separate file** from the original dataset, so the original checksum-verified dataset remains completely untouched and immutable.
+### 1.8 Integrity of artifacts
+The patch dataset was SHA-256 checksummed before and after transfer. Model checkpoints are covered by `outputs/checkpoints/checkpoint_checksums.sha256`. Large binaries (dataset, SDF caches, checkpoints) are not stored in the repository.
 
 ---
 
-## 2. Model Architecture
+## 2. Model Architectures
 
-### 2.1 Architecture Selection
-After an initial baseline using MONAI's generic U-Net (4.8M parameters, high seed-to-seed variance), the project pivoted to a faithful reimplementation of the original 3D U-Net paper:
+### 2.1 UNet3DPaper
+A reimplementation of the 3D U-Net of Çiçek et al. (MICCAI 2016, arXiv:1606.06650), following the paper's Figure 2:
 
-> Çiçek et al., "3D U-Net: Learning Dense Volumetric Segmentation from Sparse Annotation," MICCAI 2016 (arXiv:1606.06650).
+- Four resolution levels in the analysis and synthesis paths.
+- Two 3×3×3 convolutions per level, each followed by `BatchNorm3d` and ReLU.
+- 2×2×2 max pooling between encoder levels, 2×2×2 `ConvTranspose3d` up-convolutions in the decoder.
+- Channel doubling before pooling: encoder in→32→64 | 64→64→128 | 128→128→256 | 256→256→512 (bottleneck); decoder 512+256→256→256 | 256+128→128→128 | 128+64→64→64.
+- Skip connections by concatenation, final 1×1×1 convolution.
 
-### 2.2 Paper-Faithful Reimplementation (`UNet3DPaper`)
-The reimplementation matches the paper's Figure 2 exactly:
+**19,073,665 parameters** against the paper's 19,069,955. The difference is the output channel count (1 here, 3 in the paper).
 
-- **4 resolution levels** in both analysis (encoder) and synthesis (decoder) paths.
-- Each level: two **3×3×3 convolutions**, each followed by `BatchNorm3d` then `ReLU`.
-- **2×2×2 max pooling** (stride 2) between encoder levels; **2×2×2 up-convolution** (stride 2, `ConvTranspose3d`) in the decoder.
-- **Channel progression** matching the paper's channel-doubling-before-pooling scheme (to avoid bottlenecks, per Szegedy et al.):
-  - Encoder: in → 32 → 64 | 64 → 64 → 128 | 128 → 128 → 256 | 256 → 256 → 512 (bottleneck)
-  - Decoder: 512+256 → 256 → 256 | 256+128 → 128 → 128 | 128+64 → 64 → 64
-- **Skip connections** via channel concatenation at matching resolutions.
-- **Final 1×1×1 convolution** to output channels.
+Three deliberate deviations:
 
-**Parameter count: 19,073,665** — extremely close to the paper's own reported 19,069,955 (the small difference is fully explained by the different final-layer output channel count: 1 here vs. 3 in the original), providing strong independent evidence of structural fidelity.
+1. **'Same' padding** instead of valid convolutions, since the pipeline needs a fixed 64³ → 64³ mapping.
+2. **Single-channel sigmoid output** (binary task) instead of 3-class softmax.
+3. **Standard BatchNorm running statistics at evaluation.** The paper's current-batch-statistics workaround was for batch size 1. This project trains at batch size 8.
 
-### 2.3 Documented Deviations from the Paper
-Three deliberate deviations are explicitly documented:
+An earlier MONAI generic U-Net (4.8M parameters) had very high seed variance (Dice SD about 0.078 over three seeds) and is retained only as historical context. Its single test evaluation (Dice 0.6209) is superseded and not reported as a result.
 
-1. **'Same' padding** (`padding=1`) instead of the paper's valid/shrinking convolutions. The paper's 132³ → 44³ input/output shrinkage supports their seamless-tiling strategy for arbitrarily large volumes; this project needs a fixed 64³ → 64³ shape to match its patch-based pipeline.
-2. **Single-channel sigmoid output** (binary nodule/background) instead of the paper's 3-class softmax. Their Xenopus kidney task had 3 label classes; this project is binary segmentation.
-3. **Standard `BatchNorm3d` running-statistics behavior at eval time**, rather than the paper's current-batch-statistics workaround. The paper needed this workaround specifically because they used batch size 1; this project uses batch size 8, so no special handling is needed.
+### 2.2 UNETR
+UNETR (Hatamizadeh et al., WACV 2022, arXiv:2103.10504) is a pure Vision Transformer encoder on non-overlapping 3D patches with a convolutional decoder. `unetr_paper.py` wraps `monai.networks.nets.UNETR` rather than reimplementing it, because a library call is easier to verify than a hand-written ViT and decoder.
+
+- Configuration: `feature_size=16`, `hidden_size=768`, `mlp_dim=3072`, `num_heads=12`, 12 layers, instance norm, residual blocks, convolutional patch projection (MONAI defaults, the original ViT-Base configuration).
+- Skip connections are tapped at transformer layers 3, 6, 9, and 12.
+- Input is 64³. MONAI fixes the internal patch size at 16³, so the encoder sees **64 tokens**, far fewer than the 96³ or 128³ crops UNETR was designed for.
+- Output is raw logits with one channel, the same interface as UNet3DPaper.
+- **92,685,521 parameters** against the paper's 92.58M, about 4.9× UNet3DPaper.
+- The wrapper inspects MONAI's constructor signature to handle the `pos_embed` to `proj_type` rename across versions. `einops` is a required dependency.
+- No pretrained weights are used, as in the original paper.
+
+### 2.3 Training recipe parity
+UNETR uses exactly the UNet3DPaper recipe (Section 4.4). The original paper trained for 20,000 iterations at batch size 6 (about 120,000 samples seen). Fifty epochs here is about 91,650 samples, roughly 87 epochs to match the iteration count. The identical recipe was chosen so the architectures are compared under one protocol, and the recipe was not changed in response to UNETR's validation numbers. A seed-42 smoke run plateaued with the learning rate fully decayed and train and validation loss converged, and a separate 100-epoch probe did not close the gap to the CNN.
 
 ---
 
 ## 3. Loss Functions
 
-### 3.1 Baseline Loss
-The primary loss throughout all experiments is:
-
+### 3.1 Baseline
 ```python
 monai.losses.DiceFocalLoss(sigmoid=True, lambda_dice=1.0, lambda_focal=1.0)
 ```
+Used in every configuration.
 
-This combines Dice loss (region overlap) and Focal loss (hard-example mining) with equal weighting.
+### 3.2 Boundary loss
+Following Kervadec et al. (2019), with predicted probability map p(x) and ground-truth signed distance field φ(x):
 
-### 3.2 Boundary Loss
-The boundary loss formulation follows Kervadec et al. (2019), with a critical stabilization modification discovered through empirical debugging.
+$$\mathcal{L}_B = \frac{1}{N}\sum_x p(x)\,\phi(x)$$
 
-**Formulation:**
+An unclipped version collapsed training to empty predictions (validation Dice near 0), because large distant-background SDF values dominated the loss. SDF values are therefore **clipped to [−20, +20]** before averaging.
 
-Given a predicted probability map $p(x)$ and a signed distance field (SDF) $\phi(x)$ derived from the ground-truth mask, the boundary loss is:
+### 3.3 Weighting schedules
 
-$$\mathcal{L}_B = \frac{1}{N} \sum_{x} p(x) \cdot \phi(x)$$
+**Fixed schedule.** Weight 0 through epoch 16 (0-indexed), linear ramp over epochs 17 to 26, held at λ = 0.05 from epoch 26 to 50. These epochs come from the training logs. An earlier version of this document said 15 to 24, which was off by one.
 
-**Stabilization (critical fix):** An early unclipped implementation caused catastrophic training collapse — the model predicted entirely empty volumes (Val Dice → ~0.0000). Root cause: unclipped SDF magnitude in distant background voxels (up to ~50 units) dominated the loss, creating a strong incentive to predict nothing anywhere.
+**Adaptive schedule (PCG-BW).** A Schmitt-trigger gate on validation-loss convergence velocity:
 
-**Fix:** SDF values are **clipped to [−20, +20]** before averaging. This prevents distant background voxels from dominating while preserving the boundary-localization signal.
+- Validation loss is EMA-smoothed (α = 0.3, window k = 3). Velocity is the relative EMA decrease over the window.
+- The gate opens when velocity stays below `GATE_TAU_ENTER = 0.005` for `GATE_PATIENCE = 3` consecutive epochs, and closes when velocity stays above `GATE_TAU_EXIT = 0.02` for 3 epochs. Between the thresholds it holds its state.
+- Once open, velocity maps to a target weight through a sigmoid (γ = 0.001, λ_max = 0.05), and the weight is smoothed by an EMA (`WEIGHT_EMA_ALPHA = 0.3`).
+- The weight is 0 for t < k and whenever velocity ≤ 0.
+- The exponent is clipped to [−500, 500] to prevent overflow.
 
-### 3.3 Weighting Schedules
-Two boundary-loss weighting strategies were compared against the Dice+Focal baseline:
+Without hysteresis the gate toggled on single-epoch noise. Hysteresis removed that, but behavior still varies by seed and architecture:
 
-**Fixed Schedule:**
-- Boundary weight $\lambda_b = 0$ for epochs 0–14 (warmup).
-- Linear ramp from 0 to target weight (0.05) over epochs 15–24.
-- Held constant at 0.05 after epoch 24.
+- **UNet3DPaper:** all five seeds opened the gate. Three (42, 789, 2024) did so once and stayed open. Two (123, 456) closed and reopened once. The realized weight never exceeded **0.0231**, under half of λ_max.
+- **UNETR:** only one seed (2024) opened the gate. The other four never did, so those runs used no boundary term (details in `gradient_analysis.md`).
 
-**Adaptive Hysteresis-Gated Schedule (PCG-BW):**
-A Schmitt-trigger-style state machine that gates boundary-loss activation by primary-loss convergence velocity:
-
-- **Gating signal:** Validation loss EMA-smoothed over window $k=3$ with $\alpha=0.3$.
-- **Convergence velocity:** Relative EMA loss decrease over the window.
-- **Two thresholds:** `GATE_TAU_ENTER = 0.005` (velocity must drop below this to start counting toward activation) and `GATE_TAU_EXIT = 0.02` (velocity must rise above this to start counting toward deactivation). Creates a "dead zone" where the gate stays in its current state.
-- **Patience:** `GATE_PATIENCE = 3` — requires 3 consecutive epochs of consistent signal before flipping state.
-- **Weight smoothing:** `WEIGHT_EMA_ALPHA = 0.3` — an additional EMA applied to the boundary weight itself for smooth ramping.
-- **Sigmoid mapping:** Once active, velocity maps to weight via a sigmoid with temperature $\gamma = 0.001$ and maximum $\lambda_{max} = 0.05$.
-- **Edge cases:** $\lambda_b(t) = 0$ for $t < k$ (insufficient history) and for $v_p(t) \leq 0$ (validation loss degrading).
-
-**Hysteresis motivation:** An initial non-hysteresis implementation exhibited severe "flickering" — the gate toggled on/off unpredictably across epochs due to single-epoch noise in validation loss velocity. The hysteresis fix produced a single, clean activation per run.
-
-### 3.4 Output-Layer Bias Calibration
-A standard focal-loss bias calibration is applied at model initialization:
-
-```python
-init_bias = -log((1 - 0.01) / 0.01)
-```
-
-This biases initial predictions toward the rare foreground class (1% prior). This technique was introduced simultaneously with the adaptive-loss implementation and is now present as a constant across all current comparisons (baseline, fixed-schedule, and adaptive).
+### 3.4 Output-bias calibration
+The final `Conv3d` bias is initialized to `-log((1 - 0.01) / 0.01)`, the focal-loss foreground prior of 1%. The same initialization is used in every configuration and architecture, so it does not differ between the compared conditions. It does differ from the earliest MONAI-era archives.
 
 ---
 
 ## 4. Experimental Protocol
 
 ### 4.1 Reproducibility
-All experiments use fixed random seeds:
+`torch.manual_seed`, `torch.cuda.manual_seed_all`, `np.random.seed`, and `random.seed` are set from a required `--seed` argument. GPU and cuDNN operations are not bit-deterministic, so a rerun with the same seed reproduces results only approximately. A second full execution of the 15-run matrix reproduced the reported means to within small floating-point differences.
 
-```python
-torch.manual_seed(seed)
-torch.cuda.manual_seed_all(seed)
-np.random.seed(seed)
-random.seed(seed)
-```
+### 4.2 Multi-seed standard
+No conclusion rests on a single seed. All reported comparisons use N = 5 seeds (42, 123, 456, 789, 2024) with paired tests. Each architecture has 3 configurations × 5 seeds = 15 runs.
 
-The seed is passed as a required CLI argument (`--seed`).
+### 4.3 Dual-criterion checkpointing
+Two checkpoints are saved independently per run: `best_dice_unet3d.pt` and `best_hd95_unet3d.pt`, each updated only when its own metric improves. Tracking a single Dice-best checkpoint made the reported HD95 the value at the Dice-best epoch, which on the early MONAI baseline differed greatly from the true best (28.23 mm vs. 8.13 mm in one run). Reported validation results use the best-Dice checkpoint, and test evaluation uses that checkpoint for every run, selected by validation only.
 
-### 4.2 Multi-Seed Evaluation Standard
-No conclusion is drawn from single-seed comparisons. The minimum standard is **N = 3 seeds**; key results were extended to **N = 5 seeds** (42, 123, 2024, 456, 789) for statistical robustness.
+### 4.4 Training hyperparameters
+- Batch size 8, 50 epochs, no early stopping.
+- **AdamW**, weight decay 1e-5, initial learning rate 1e-4, `ReduceLROnPlateau` (final learning rate between 1.25e-5 and 1e-4 depending on the run).
+- Augmentation (training only): `RandRotated` (±0.3 rad, about ±17.2° per axis, 50% probability), three independent `RandFlipd` (50% each), `RandGaussianNoised` (20% probability, std 0.1). Image and label use matched transforms, and the SDF is rotated with the same sampled angle. Validation and test use no augmentation.
+- DataLoaders use `persistent_workers=True`.
+- A SHA-256 fingerprint of the core source files (`get_code_version()`, first 12 hex characters) is stored with each run, so code provenance does not depend on git. All 15 original UNet3DPaper runs share `6d28de4f780d`.
 
-### 4.3 Dual-Criterion Checkpointing
-Two checkpoints are saved independently per run:
-- `best_dice_unet3d.pt` — updated only when validation Dice improves.
-- `best_hd95_unet3d.pt` — updated only when validation HD95 improves.
+### 4.5 Held-out test protocol (one look)
+The 434-patch test partition was not used for any model, loss, or hyperparameter decision. After the architecture, losses, and SDF audits were final, all 15 best-Dice checkpoints of each architecture (30 total) were evaluated once with `evaluate_test_set.py` and the results are final. The evaluation covers all configurations and seeds rather than a selected best model, so the test set also checks whether the validation-time null result replicates. Further analyses on the frozen test outputs (`analyze_test_results.py`, `compare_architectures.py`) compute new comparisons only and do not re-open model selection. The earlier test evaluation of the MONAI baseline is superseded.
 
-This prevents the earlier bug where tracking only the Dice-best checkpoint caused the reported HD95 to be whatever happened to occur on the Dice-best epoch — often not the model's true best boundary-precision epoch.
-
-### 4.4 Data Augmentation
-Training uses random augmentation:
-- Random rotation (applied to both image and mask, with matched transform keys for SDF alignment).
-- Random flips.
-
-Validation uses **no augmentation**.
-
-### 4.5 Training Hyperparameters
-- **Batch size:** 8
-- **Optimizer:** Adam
-- **Learning rate:** Standard schedule (details in `config.py`)
-- **Epochs:** 50
-- **DataLoader:** `persistent_workers=True` for minor throughput optimization
-
-### 4.6 Held-Out Test Set Discipline
-The test set is treated as a true held-out evaluation. It has **not been evaluated** on the final `UNet3DPaper` architecture. Evaluation will occur exactly once after all architecture and loss decisions are finalized, per one-look discipline.
+### 4.6 Compute
+Training ran on a shared, air-gapped cluster (8× RTX 4090, 24 GB) in the container `pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel`. The 15 UNet3DPaper runs took about 15.8 GPU-hours. All packages were staged offline in a "wheelhouse" built inside the matching container image.
 
 ---
 
 ## 5. Evaluation Metrics
 
-### 5.1 Segmentation Metrics
-All metrics computed at the patch level:
+All metrics are computed per patch on the full 64³ prediction (threshold 0.5 on the sigmoid output) and then averaged.
 
-- **Dice Similarity Coefficient (DSC):** Primary overlap metric.
-- **HD95 (95th Percentile Hausdorff Distance):** Boundary precision, in millimeters. Empty or skipped predictions are **penalized** with the maximum possible patch diagonal (~110.85 mm for a 64³ patch) rather than excluded from the mean. This addresses a previously flagged optimistic bias.
-- **HD100 (Maximum Hausdorff Distance):** Worst-case boundary error.
-- **ASSD (Average Symmetric Surface Distance):** Mean surface distance.
-- **IoU (Intersection over Union):** Alternative overlap metric.
-- **Precision, Recall, Specificity, F1:** Derived from MONAI's `ConfusionMatrixMetric`.
-- **Raw TP/FP/FN/TN voxel counts:** Logged to enable any confusion-matrix metric to be recomputed later without rerunning.
+- **Dice** (primary overlap metric) and **IoU**.
+- **HD95** and **HD100** (millimeters). **Empty or skipped predictions are penalized** with the maximum patch diagonal (about 110.85 mm) rather than excluded. This removes an earlier optimistic bias but means HD95 values are not comparable with results from before that change.
+- **ASSD**, the average symmetric surface distance.
+- **NSD**, normalized surface distance at 1 mm and 2 mm tolerance, computed on the test set by `compute_test_nsd.py`.
+- Precision, recall, specificity, and F1 via MONAI's `ConfusionMatrixMetric`, and raw TP/FP/FN/TN counts per epoch.
+- **Size-stratified Dice** by terciles of ground-truth foreground voxel count (small, medium, large), and post-hoc subgroup Dice by clinical ratings (Section 1.6).
 
-### 5.2 Per-Nodule-Size Analysis
-Dice is additionally reported per size bucket (small / medium / large by ground-truth foreground voxel count) to detect size-dependent performance biases.
+### 5.1 Statistics
+Paired t-test and Wilcoxon signed-rank test across matched seeds, α = 0.05, population SD (ddof = 0) for every ± value, paired Cohen's d for the architecture comparison. With five seeds the smallest possible Wilcoxon p is 0.0625. See `statistical_analysis.md` for the full conventions.
 
-### 5.3 Statistical Testing
-Pairwise comparisons across configurations use:
-- **Paired t-test**
-- **Wilcoxon signed-rank test**
-
-Both applied to matched seeds for `best_val_dice` and `best_val_hd95`. Significance threshold: $\alpha = 0.05$.
-
-### 5.4 Gradient Telemetry
-A standalone, non-invasive diagnostic script (`grad_telemetry_check.py`) measures gradient magnitude of the boundary loss term vs. the regional (Dice+Focal) loss term using a trained checkpoint and real validation batches — deliberately not modifying `train.py`, just inspecting gradients via `torch.autograd.grad`.
+### 5.2 Gradient telemetry
+`grad_telemetry_check.py` loads a trained checkpoint, passes real validation batches through it, and uses `torch.autograd.grad` to measure the gradient norm of the regional (Dice + Focal) term and of the boundary term at raw weight 1.0. It reports the boundary term's raw and effective (at the trained weight) share. It does not modify `train.py`. It was run on one fixed-schedule checkpoint per architecture (seed 42).
 
 ---
 
-## 6. Code Versioning
+## 6. Robustness Audits
 
-A hash-based code-version fingerprint (`get_code_version()`) computes the SHA-256 of core `.py` files and reports the first 12 hex characters. This was built specifically so code-version tracking does not depend on git being maintained, given the project's history of full codebase rebuilds.
+Both approximations in the SDF cache (Section 1.7) were tested by quantifying the error and then retraining both boundary configurations across all five seeds with corrected SDFs (10 runs each, 20 in total), comparing against the original runs with the standard paired tests.
+
+**Patch-boundary truncation.** 304 of 2,651 nodules (11.5%) touch or exceed the 64³ patch boundary. Near-boundary SDF error is 0.191 mm for these nodules against 0.023 mm for the rest. Corrected reference SDFs were computed from 128³ wide masks, center-cropped to 64³ and clipped at ±20 mm (`generate_corrected_sdf.py`).
+
+**Rotation under augmentation.** Bilinear interpolation of the cached SDF under rotation violates the Eikonal condition. The measured near-boundary error is 0.240 mm (whole-patch 0.060 mm). The corrected runs rotate the wide mask together with the image and recompute the SDF from the rotated mask on the fly.
+
+Neither correction changed the result (all 12 comparisons p > 0.11). Details are in `statistical_analysis.md`, Section 2. The audits were done for UNet3DPaper only.
+
+The 128³ wide-mask extraction code has a known flaw: with anisotropic spacing its 128³ crop does not align exactly with the 64³ grid of the original patches (synthetic-sphere test: overlap 0.86 to 0.97 under anisotropy and 1.0 under isotropy). The audits were therefore designed to be self-referential, comparing SDFs derived from the same wide mask, and do not depend on bit-exact reproduction of the original grid.
 
 ---
 
 ## 7. Limitations and Scope
 
-- **SDF patch-truncation:** The SDF is computed within a cropped 64³ patch with no knowledge of true nodule geometry beyond the patch edge. This is a known geometric approximation.
-- **Single-architecture-family scope:** Only the 3D U-Net family was evaluated; no attention mechanisms, transformer blocks, or other architectures were tested.
-- **Boundary-loss weight ceiling:** The null result on boundary-loss weighting is specific to $\lambda_{max} = 0.05$. Higher weights were not explored due to the observed gradient-starvation diagnosis.
-- **Single dataset:** Results are specific to LIDC-IDRI; generalization to other pulmonary nodule datasets or other 3D segmentation tasks is not claimed.
+- **Task definition.** Every patch is centered on an annotated nodule and the dataset has no negatives. The task is segmenting a known nodule, which is easier than detection plus segmentation. Clinical claims should not be extended beyond that.
+- **Consensus threshold.** The 50% threshold was not varied, and only the merged mask is stored.
+- **Cohort coverage.** Scans with no annotated nodule contribute nothing, so the patch set is not characterized against the full 1,018-scan cohort or a clinical population.
+- **One dataset, one split.** Robustness comes from five training seeds on a single patient-level split, not from k-fold cross-validation or an external dataset.
+- **Resampling.** Linear and nearest-neighbor interpolation only, with no record of per-patch interpolation amount.
+- **Boundary-loss scope.** The null result applies to λ_max = 0.05, the SDF formulation used, and the two schedules tested. One higher-weight probe (λ = 0.50) showed no change (`gradient_analysis.md`). Dynamic gradient balancing (for example GradNorm) is untested.
+- **Gradient telemetry** is a single snapshot per architecture, not a trajectory.
+- **Adaptive gate.** Its thresholds were developed on the CNN. On UNETR only one of five seeds opened the gate, so the UNETR adaptive configuration largely duplicates the baseline.
+- **Audits.** The SDF truncation and rotation retrains were not repeated for UNETR. The argument that they are unnecessary rests on UNETR's even smaller boundary gradient share and is not an empirical check.
+- **UNETR scope.** The comparison uses one UNETR configuration with 64 tokens per patch and the CNN's training recipe. Explanations for its deficit (data scarcity, missing convolutional priors, coarse tokenization) are hypotheses consistent with the data and were not isolated by ablation.
+- **Not evaluated:** nnU-Net-style self-configuring pipelines and other architectures. Testing boundary loss inside such a framework remains open.
