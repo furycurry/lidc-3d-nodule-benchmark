@@ -50,7 +50,7 @@ The split now uses `sklearn.model_selection.GroupShuffleSplit` grouped by patien
 Pairwise patient-set intersections are asserted empty at split creation and again on every `train.py` run. The split, seed, and KS p-values are stored in `train_val_test_split.json`. Stratification is on nodule size only.
 
 ### 1.6 Clinical metadata
-Radiologist consensus ratings (spiculation, subtlety, texture) are kept outside the patch file in `nodule_clinical_metadata.json` and used only for post-hoc subgroup analysis. They are not model inputs. Per-radiologist contours are not retained, so inter-observer agreement and other consensus thresholds cannot be examined without re-extraction.
+Radiologist consensus ratings (spiculation, subtlety, texture) are kept outside the patch file in `nodule_clinical_metadata.json` and used only for post-hoc subgroup analysis. They are not model inputs. Test nodules are stratified by the mean rating over annotators: texture (non-solid ≤ 2.0, N = 51; part-solid 2.0–4.0, N = 38; solid ≥ 4.0, N = 345), subtlety (≤ 2.5, N = 64; 2.5–3.5, N = 114; > 3.5, N = 256), spiculation (smooth ≤ 2.0, N = 379; spiculated > 2.0, N = 55), and malignancy suspicion (≤ 2.5, N = 160; 2.5–3.5, N = 211; > 3.5, N = 63). Per-radiologist contours are not retained, so inter-observer agreement and other consensus thresholds cannot be examined without re-extraction.
 
 ### 1.7 Precomputed SDF cache
 `lidc_sdf_cache.h5` holds one signed distance field per mask (`distance_transform_edt` on foreground and background, combined as negative inside, positive outside, float32). It is computed once by `precompute_sdf.py` and checked byte-identical to fresh computation on five patches. It lives in its own file so the checksum-verified patch dataset stays immutable.
@@ -128,7 +128,7 @@ An unclipped version collapsed training to empty predictions (validation Dice ne
 
 Without hysteresis the gate toggled on single-epoch noise. Hysteresis removed that, but behavior still varies by seed and architecture:
 
-- **UNet3DPaper:** all five seeds opened the gate. Three (42, 789, 2024) did so once and stayed open. Two (123, 456) closed and reopened once. The realized weight never exceeded **0.0231**, under half of λ_max.
+- **UNet3DPaper:** all five seeds opened the gate, first at epochs 33–42. Three (42, 789, 2024) did so once and stayed open. Two (123, 456) closed and reopened once. The realized weight never exceeded **0.0231**, under half of λ_max, and stayed below 0.01 for seeds 42 and 123.
 - **UNETR:** only one seed (2024) opened the gate. The other four never did, so those runs used no boundary term (details in `gradient_analysis.md`).
 
 ### 3.4 Output-bias calibration
@@ -149,16 +149,16 @@ Two checkpoints are saved independently per run: `best_dice_unet3d.pt` and `best
 
 ### 4.4 Training hyperparameters
 - Batch size 8, 50 epochs, no early stopping.
-- **AdamW**, weight decay 1e-5, initial learning rate 1e-4, `ReduceLROnPlateau` (final learning rate between 1.25e-5 and 1e-4 depending on the run).
+- **AdamW**, weight decay 1e-5, initial learning rate 1e-4, `ReduceLROnPlateau` (factor 0.5, patience 5; final learning rate between 1.25e-5 and 1e-4 depending on the run).
 - Augmentation (training only): `RandRotated` (±0.3 rad, about ±17.2° per axis, 50% probability), three independent `RandFlipd` (50% each), `RandGaussianNoised` (20% probability, std 0.1). Image and label use matched transforms, and the SDF is rotated with the same sampled angle. Validation and test use no augmentation.
 - DataLoaders use `persistent_workers=True`.
-- A SHA-256 fingerprint of the core source files (`get_code_version()`, first 12 hex characters) is stored with each run, so code provenance does not depend on git. All 15 original UNet3DPaper runs share `6d28de4f780d`.
+- A SHA-256 fingerprint of the core source files (`get_code_version()`, first 12 hex characters) is stored with each run, so code provenance does not depend on git. All 15 original UNet3DPaper runs share `6d28de4f780d`, and all 15 UNETR runs share `925996db30b0` (the code after UNETR support was added).
 
 ### 4.5 Held-out test protocol (one look)
 The 434-patch test partition was not used for any model, loss, or hyperparameter decision. After the architecture, losses, and SDF audits were final, all 15 best-Dice checkpoints of each architecture (30 total) were evaluated once with `evaluate_test_set.py` and the results are final. The evaluation covers all configurations and seeds rather than a selected best model, so the test set also checks whether the validation-time null result replicates. Further analyses on the frozen test outputs (`analyze_test_results.py`, `compare_architectures.py`) compute new comparisons only and do not re-open model selection. The earlier test evaluation of the MONAI baseline is superseded.
 
 ### 4.6 Compute
-Training ran on a shared, air-gapped cluster (8× RTX 4090, 24 GB) in the container `pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel`. The 15 UNet3DPaper runs took about 15.8 GPU-hours. All packages were staged offline in a "wheelhouse" built inside the matching container image.
+Training ran on a shared, air-gapped cluster (8× RTX 4090, 24 GB) in the container `pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel`, PyTorch 2.11, CUDA 12.8, one RTX 4090 per run. Peak GPU memory was 9.76–9.78 GB (UNet3DPaper) and 4.40–4.42 GB (UNETR). The 15 UNet3DPaper runs took about 15.8 GPU-hours and the 15 UNETR runs about 7.8. All packages were staged offline in a "wheelhouse" built inside the matching container image.
 
 ---
 
@@ -171,10 +171,10 @@ All metrics are computed per patch on the full 64³ prediction (threshold 0.5 on
 - **ASSD**, the average symmetric surface distance.
 - **NSD**, normalized surface distance at 1 mm and 2 mm tolerance, computed on the test set by `compute_test_nsd.py`.
 - Precision, recall, specificity, and F1 via MONAI's `ConfusionMatrixMetric`, and raw TP/FP/FN/TN counts per epoch.
-- **Size-stratified Dice** by terciles of ground-truth foreground voxel count (small, medium, large), and post-hoc subgroup Dice by clinical ratings (Section 1.6).
+- **Size-stratified Dice** by ground-truth foreground voxel count. On the test set the tiers are fixed thresholds: small < 100 voxels (N = 148), medium 100–500 (N = 175), large > 500 (N = 111). Post-hoc subgroup Dice by clinical ratings (Section 1.6) is also reported.
 
 ### 5.1 Statistics
-Paired t-test and Wilcoxon signed-rank test across matched seeds, α = 0.05, population SD (ddof = 0) for every ± value, paired Cohen's d for the architecture comparison. With five seeds the smallest possible Wilcoxon p is 0.0625. See `statistical_analysis.md` for the full conventions.
+Paired t-test and Wilcoxon signed-rank test across matched seeds, α = 0.05, population SD (ddof = 0) for every ± value, paired Cohen's d for the architecture comparison. With five seeds the smallest possible Wilcoxon p is 0.0625. Test-set subgroup analyses use Bonferroni correction over two families: the 12 volume-stratified comparisons, and the 28 boundary-vs-baseline test comparisons that are reported (12 volume-stratified, 13 full-cohort metric comparisons, 3 margin-morphology comparisons). Counting all six metrics for both losses on both architectures gives a larger family of 39. See `statistical_analysis.md` for the full conventions.
 
 ### 5.2 Gradient telemetry
 `grad_telemetry_check.py` loads a trained checkpoint, passes real validation batches through it, and uses `torch.autograd.grad` to measure the gradient norm of the regional (Dice + Focal) term and of the boundary term at raw weight 1.0. It reports the boundary term's raw and effective (at the trained weight) share. It does not modify `train.py`. It was run on one fixed-schedule checkpoint per architecture (seed 42).
@@ -189,7 +189,7 @@ Both approximations in the SDF cache (Section 1.7) were tested by quantifying th
 
 **Rotation under augmentation.** Bilinear interpolation of the cached SDF under rotation violates the Eikonal condition. The measured near-boundary error is 0.240 mm (whole-patch 0.060 mm). The corrected runs rotate the wide mask together with the image and recompute the SDF from the rotated mask on the fly.
 
-Neither correction changed the result (all 12 comparisons p > 0.11). Details are in `statistical_analysis.md`, Section 2. The audits were done for UNet3DPaper only.
+Neither correction improved on the original runs. Under the last-10-epoch aggregate all 12 comparisons have p ≥ 0.11. Under peak validation Dice, one comparison (fixed schedule, rotation-corrected SDF) is nominally *worse* than the original (−0.0025, p = 0.020 uncorrected, Wilcoxon 0.0625). Details are in `statistical_analysis.md`, Section 2. The audits were done for UNet3DPaper only.
 
 The 128³ wide-mask extraction code has a known flaw: with anisotropic spacing its 128³ crop does not align exactly with the 64³ grid of the original patches (synthetic-sphere test: overlap 0.86 to 0.97 under anisotropy and 1.0 under isotropy). The audits were therefore designed to be self-referential, comparing SDFs derived from the same wide mask, and do not depend on bit-exact reproduction of the original grid.
 
