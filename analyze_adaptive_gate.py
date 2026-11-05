@@ -30,10 +30,10 @@ except Exception:
     RESULTS_DIR = BASE_DIR / "outputs" / "results"
     OUTPUT_DIR = BASE_DIR / "outputs"
 
-if Path("/workspace/outputs/results").exists():
-    RESULTS_DIR = Path("/workspace/outputs/results")
-if Path("/workspace/outputs").exists():
-    OUTPUT_DIR = Path("/workspace/outputs")
+if Path("outputs/results").exists():
+    RESULTS_DIR = Path("outputs/results")
+if Path("outputs").exists():
+    OUTPUT_DIR = Path("outputs")
 
 SEEDS = [42, 123, 456, 789, 2024]
 

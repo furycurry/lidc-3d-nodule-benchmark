@@ -20,7 +20,7 @@ from lidc_dataset import LIDCDataset
 from unet3d_paper import UNet3DPaper
 from unetr_paper import UNETRPaper
 
-WORKSPACE = Path("/workspace")
+WORKSPACE = Path(".")
 TEST_RESULTS_DIR = WORKSPACE / "outputs" / "test_results"
 CHECKPOINTS_DIR = WORKSPACE / "outputs" / "checkpoints"
 SPLIT_PATH = WORKSPACE / "train_val_test_split.json"

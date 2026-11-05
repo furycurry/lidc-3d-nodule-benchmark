@@ -4,7 +4,7 @@ import numpy as np
 print("="*60)
 print("1. SEARCHING FOR ALL TEST & AUDIT JSON ARTIFACTS")
 print("="*60)
-all_jsons = sorted(glob.glob("/workspace/**/*.json", recursive=True))
+all_jsons = sorted(glob.glob("**/*.json", recursive=True))
 for p in all_jsons:
     if any(k in os.path.basename(p) for k in ["strat", "nsd", "test", "trunc", "wide", "lambda", "epoch"]):
         print(p)
@@ -12,7 +12,7 @@ for p in all_jsons:
 print("\n" + "="*60)
 print("2. CLINICAL & VOLUME STRATIFICATION COUNTS")
 print("="*60)
-strat_path = "/workspace/outputs/test_results/clinical_stratification_summary.json"
+strat_path = "outputs/test_results/clinical_stratification_summary.json"
 if os.path.exists(strat_path):
     d = json.load(open(strat_path))
     print("Top-level keys in stratification JSON:", list(d.keys()))
@@ -26,7 +26,7 @@ else:
 print("\n" + "="*60)
 print("3. HELD-OUT TEST DICE PER SEED (UNETR & UNET3D)")
 print("="*60)
-test_files = sorted(glob.glob("/workspace/outputs/**/test*.json", recursive=True))
+test_files = sorted(glob.glob("outputs/**/test*.json", recursive=True))
 for tf in test_files:
     try:
         data = json.load(open(tf))
@@ -42,15 +42,15 @@ for tf in test_files:
 print("\n" + "="*60)
 print("4. TRUNCATION & ARTIFACT RE-TRAINING LOGS")
 print("="*60)
-audit_files = sorted(glob.glob("/workspace/outputs/**/*trunc*.json", recursive=True)) + \
-              sorted(glob.glob("/workspace/outputs/**/*wide*.json", recursive=True)) + \
-              sorted(glob.glob("/workspace/outputs/**/*audit*.json", recursive=True))
+audit_files = sorted(glob.glob("outputs/**/*trunc*.json", recursive=True)) + \
+              sorted(glob.glob("outputs/**/*wide*.json", recursive=True)) + \
+              sorted(glob.glob("outputs/**/*audit*.json", recursive=True))
 if audit_files:
     for af in audit_files:
         print(f"Found audit file: {af}")
         print(open(af).read()[:300])
 else:
-    print("No direct *trunc* or *wide* JSONs found. Checking log files in /workspace:")
-    for log in sorted(glob.glob("/workspace/*.log")):
+    print("No direct *trunc* or *wide* JSONs found. Checking log files in the working directory:")
+    for log in sorted(glob.glob("*.log")):
         print(" ", log)
 

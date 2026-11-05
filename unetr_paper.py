@@ -10,7 +10,7 @@ Reference:
     Segmentation", WACV 2022. https://arxiv.org/abs/2103.10504
 
 Design notes / assumptions -- confirm these match your pipeline before
-running anything on the cluster, since I built this from the project's
+running anything on the target machine, since I built this from the project's
 documented conventions, not the actual `unet3d_paper.py` / `train.py`
 source:
 
@@ -97,7 +97,7 @@ class UNETRPaper(nn.Module):
         # MONAI renamed `pos_embed` -> `proj_type` in 1.2 (removed in 1.4).
         # Introspect the installed signature rather than guessing the
         # version -- this is what actually needs to work unattended on the
-        # air-gapped cluster, where you can't just pip install a fix.
+        # restricted environment, where you can't just pip install a fix.
         sig_params = inspect.signature(_MonaiUNETR.__init__).parameters
         if "proj_type" in sig_params:
             common_kwargs["proj_type"] = proj_type
@@ -124,7 +124,7 @@ def count_parameters(model: nn.Module) -> int:
 
 if __name__ == "__main__":
     # Quick self-test: confirms the model builds and a forward pass runs at
-    # this project's actual patch size, before touching the cluster.
+    # this project's actual patch size, before touching the target machine.
     model = UNETRPaper(in_channels=1, out_channels=1, img_size=64)
     dummy = torch.randn(2, 1, 64, 64, 64)
     out = model(dummy)

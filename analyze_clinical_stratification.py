@@ -12,7 +12,7 @@ from collections import defaultdict
 import numpy as np
 from scipy import stats
 
-WORKSPACE = Path("/workspace")
+WORKSPACE = Path(".")
 SPLIT_PATH = WORKSPACE / "train_val_test_split.json"
 METADATA_PATH = WORKSPACE / "nodule_clinical_metadata.json"
 TEST_RESULTS_DIR = WORKSPACE / "outputs" / "test_results"

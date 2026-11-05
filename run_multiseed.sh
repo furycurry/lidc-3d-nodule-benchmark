@@ -1,31 +1,27 @@
 #!/usr/bin/env bash
+# Run the full benchmark matrix (3 loss configurations x 5 seeds) for one architecture, sequentially.
+# Usage:  bash run_multiseed.sh [unet3d_paper|unetr]
+# For the multi-GPU parallel version, see run_clean_matrix.sh.
 set -e
 
-SEEDS=(42 43 44 45 46)
+ARCH="${1:-unet3d_paper}"
+SEEDS=(42 123 456 789 2024)
 
-echo "=========================================="
-echo " Starting 3D U-Net Benchmark Execution"
-echo "=========================================="
+echo "=== Benchmark matrix: architecture=${ARCH}, seeds=${SEEDS[*]} ==="
 
-# 1. Baseline Run (DiceFocal Only)
 for SEED in "${SEEDS[@]}"; do
-    echo "[RUNNING] Baseline | Seed: ${SEED}"
-    python train.py --seed "${SEED}" --architecture unet3d_paper
+    echo "[RUN] baseline | ${ARCH} | seed ${SEED}"
+    python train.py --seed "${SEED}" --architecture "${ARCH}"
 done
 
-# 2. Fixed-Schedule Boundary Loss
 for SEED in "${SEEDS[@]}"; do
-    echo "[RUNNING] Fixed Boundary | Seed: ${SEED}"
-    python train.py --seed "${SEED}" --boundary --architecture unet3d_paper
+    echo "[RUN] boundary (fixed) | ${ARCH} | seed ${SEED}"
+    python train.py --seed "${SEED}" --architecture "${ARCH}" --boundary
 done
 
-# 3. Adaptive Boundary Loss (PCG-BW)
 for SEED in "${SEEDS[@]}"; do
-    echo "[RUNNING] Adaptive Boundary | Seed: ${SEED}"
-    python train.py --seed "${SEED}" --boundary --adaptive-boundary --architecture unet3d_paper
+    echo "[RUN] boundary (adaptive) | ${ARCH} | seed ${SEED}"
+    python train.py --seed "${SEED}" --architecture "${ARCH}" --boundary --adaptive-boundary
 done
 
-echo "=========================================="
-echo " Benchmark Execution Complete!"
-echo " Results saved to outputs/results/"
-echo "=========================================="
+echo "=== Done. Results in outputs/results/ ==="

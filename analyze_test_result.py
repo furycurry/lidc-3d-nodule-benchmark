@@ -38,10 +38,10 @@ except Exception:
     RESULTS_DIR = BASE_DIR / "outputs" / "results"
     OUTPUT_DIR = BASE_DIR / "outputs"
 
-if Path("/workspace/outputs/results").exists():
-    RESULTS_DIR = Path("/workspace/outputs/results")
-if Path("/workspace/outputs").exists():
-    OUTPUT_DIR = Path("/workspace/outputs")
+if Path("outputs/results").exists():
+    RESULTS_DIR = Path("outputs/results")
+if Path("outputs").exists():
+    OUTPUT_DIR = Path("outputs")
 
 TEST_RESULTS_DIR = OUTPUT_DIR / "test_results"
 

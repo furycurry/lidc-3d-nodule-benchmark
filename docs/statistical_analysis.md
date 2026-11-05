@@ -1,6 +1,6 @@
 # Statistical Analysis
 
-This document reports every statistical comparison in the benchmark: boundary-loss variants against the Dice+Focal baseline (validation and held-out test), the two SDF-approximation audits, and the UNet3DPaper vs. UNETR architecture comparison. Numbers come from the per-run JSONs in `outputs/results/` and `outputs/test_results/`, via `aggregate_results.py`, `statistical_test.py`, `analyze_test_results.py`, `compare_architectures.py`, and the audit comparison scripts.
+This document reports every statistical comparison in the benchmark: boundary-loss variants against the Dice+Focal baseline (validation and held-out test), the two SDF-approximation audits, and the UNet3DPaper vs. UNETR architecture comparison. Numbers come from the per-run JSONs in `outputs/results/` and `outputs/test_results/`, via `aggregate_results.py`, `statistical_test.py`, `analyze_test_result.py`, `compare_corrected_sdf.py`, and the table generators in `tools/` (`make_tables_validation.py`, `make_tables_test.py`, `make_tables_clinical.py`), whose output is committed in `outputs/generated/`.
 
 ## 0. Conventions
 
@@ -224,7 +224,7 @@ See Section 5.3 for the clinical-subgroup tables, including the test of whether 
 
 ## 5. Architecture comparison: UNet3DPaper vs. UNETR
 
-`compare_architectures.py` pairs the two architectures by configuration and seed on the frozen test results (N = 5 per configuration, N = 15 pooled). It reads existing JSONs and does no new inference.
+The architecture comparison (`outputs/test_results/architecture_comparison_summary.json`, recomputed by `tools/make_tables_test.py`) pairs the two architectures by configuration and seed on the frozen test results (N = 5 per configuration, N = 15 pooled). It reads existing JSONs and does no new inference.
 
 ### 5.1 Pooled comparison (N = 15)
 

@@ -7,7 +7,7 @@ on Dice, HD95, and IoU -- for each config (fixed-schedule, adaptive)
 separately.
 
 Usage:
-    python compare_corrected_sdf.py --results-dir /workspace/outputs/results
+    python compare_corrected_sdf.py --results-dir outputs/results
 (adjust --original-suffix if the original 10 files live under a different
 naming pattern, e.g. if they were moved into an archive directory)
 """

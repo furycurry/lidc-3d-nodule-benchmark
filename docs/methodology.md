@@ -7,7 +7,7 @@ This document describes the full pipeline for the 3D pulmonary nodule segmentati
 ## 1. Dataset Construction
 
 ### 1.1 Raw data
-LIDC-IDRI comprises 1,018 thoracic CT scans, each with up to four radiologist annotations. Raw DICOM data (about 124 GB) was accessed locally through the `pylidc` library. Only the extracted patch dataset was transferred to the training cluster. Raw DICOMs never left the local workstation.
+LIDC-IDRI comprises 1,018 thoracic CT scans, each with up to four radiologist annotations. Raw DICOM data (about 124 GB) was accessed through the `pylidc` library. Only the extracted patch dataset is needed for training and evaluation, and the raw DICOMs are not part of the released artifacts.
 
 ### 1.2 Patch extraction (`build_hdf5.py`)
 For each scan, `pylidc`'s `cluster_annotations()` (default parameters) groups radiologist contours into nodule clusters. Scans with no clusters produce no patches. 875 patients contribute at least one patch. For each cluster:
@@ -155,10 +155,10 @@ Two checkpoints are saved independently per run: `best_dice_unet3d.pt` and `best
 - A SHA-256 fingerprint of the core source files (`get_code_version()`, first 12 hex characters) is stored with each run, so code provenance does not depend on git. All 15 original UNet3DPaper runs share `6d28de4f780d`, and all 15 UNETR runs share `925996db30b0` (the code after UNETR support was added).
 
 ### 4.5 Held-out test protocol (one look)
-The 434-patch test partition was not used for any model, loss, or hyperparameter decision. After the architecture, losses, and SDF audits were final, all 15 best-Dice checkpoints of each architecture (30 total) were evaluated once with `evaluate_test_set.py` and the results are final. The evaluation covers all configurations and seeds rather than a selected best model, so the test set also checks whether the validation-time null result replicates. Further analyses on the frozen test outputs (`analyze_test_results.py`, `compare_architectures.py`) compute new comparisons only and do not re-open model selection. The earlier test evaluation of the MONAI baseline is superseded.
+The 434-patch test partition was not used for any model, loss, or hyperparameter decision. After the architecture, losses, and SDF audits were final, all 15 best-Dice checkpoints of each architecture (30 total) were evaluated once with `evaluate_test_set.py` and the results are final. The evaluation covers all configurations and seeds rather than a selected best model, so the test set also checks whether the validation-time null result replicates. Further analyses on the frozen test outputs (`analyze_test_result.py`, `analyze_clinical_stratification.py`, `compute_test_nsd.py`, and `tools/make_tables_test.py`) compute new comparisons only and do not re-open model selection. The earlier test evaluation of the MONAI baseline is superseded.
 
 ### 4.6 Compute
-Training ran on a shared, air-gapped cluster (8× RTX 4090, 24 GB) in the container `pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel`, PyTorch 2.11, CUDA 12.8, one RTX 4090 per run. Peak GPU memory was 9.76–9.78 GB (UNet3DPaper) and 4.40–4.42 GB (UNETR). The 15 UNet3DPaper runs took about 15.8 GPU-hours and the 15 UNETR runs about 7.8. All packages were staged offline in a "wheelhouse" built inside the matching container image.
+Training used one NVIDIA RTX 4090 (24 GB) per run, inside the container `pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel` (PyTorch 2.11, CUDA 12.8). Peak GPU memory was 9.76–9.78 GB (UNet3DPaper) and 4.40–4.42 GB (UNETR). The 15 UNet3DPaper runs took about 15.8 GPU-hours and the 15 UNETR runs about 7.8.
 
 ---
 
