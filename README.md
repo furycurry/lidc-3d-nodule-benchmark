@@ -197,7 +197,7 @@ python train.py --seed 42 --architecture unet3d_paper --boundary \
     --experiment-tag rotationCorrected
 ```
 
-The `rotationCorrected` result JSONs record a `wide_mask_path` field and code fingerprint `aa564d7dc34d`; the `train.py` variant that produced them was not committed, and the `--wide-mask-path` option in this release reproduces it. Result JSONs record the fingerprint of the code that produced them (`6d28de4f780d` main UNet3DPaper matrix, `925996db30b0` UNETR, `8ab2f50d9136` truncation retrains, `aa564d7dc34d` exact-SDF retrains); later commits change paths, comments and documentation only.
+The `rotationCorrected` result JSONs record a `wide_mask_path` field and code fingerprint `aa564d7dc34d`; the `train.py` variant that produced them was not committed, and the `--wide-mask-path` option in this release reproduces it. Result JSONs record the fingerprint of the code that produced them (`6d28de4f780d` main UNet3DPaper matrix, `925996db30b0` UNETR, `8ab2f50d9136` truncation retrains, `aa564d7dc34d` exact-SDF retrains, `05da343e13a1` the two probe runs); later commits change paths, comments and documentation only.
 
 Rerunning training reproduces results only approximately, because GPU operations are not bit-deterministic. The result JSONs in `outputs/results/` are the reference values behind every table in the paper.
 
