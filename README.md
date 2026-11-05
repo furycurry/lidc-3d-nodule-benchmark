@@ -179,7 +179,25 @@ python tools/make_tables_test.py         # -> outputs/generated/test_tables.md
 python tools/make_tables_clinical.py     # -> outputs/generated/clinical_tables.md
 ```
 
-<!-- TODO(verify): the retrains for the SDF audits use train.py --sdf-path and --experiment-tag; add the exact commands (and the arguments of precompute_sdf.py / generate_corrected_sdf.py) once confirmed. -->
+**SDF audits.** The audit retrains reuse `train.py` with a corrected SDF source and a result-file tag, so they never overwrite the original runs:
+
+```bash
+# Corrected (non-truncated) SDFs from the 128^3 wide masks
+python data_prep/generate_corrected_sdf.py --wide-h5 lidc_wide_masks_and_provenance.h5 --out-h5 lidc_corrected_sdf_64.h5
+
+# Truncation audit: corrected cached SDF (rotation approximation unchanged)
+python train.py --seed 42 --architecture unet3d_paper --boundary \
+    --sdf-path lidc_corrected_sdf_64.h5 --experiment-tag correctedSDF
+# add --adaptive-boundary for the adaptive variant
+
+# Exact-SDF audit: wide masks rotated with the image, SDF recomputed per sample
+# (removes truncation and interpolation error together)
+python train.py --seed 42 --architecture unet3d_paper --boundary \
+    --sdf-path lidc_corrected_sdf_64.h5 --wide-mask-path lidc_wide_masks_and_provenance.h5 \
+    --experiment-tag rotationCorrected
+```
+
+<!-- TODO(verify): --wide-mask-path is added to train.py in a release patch; confirm the rotationCorrected result JSONs were produced with the same loader code path. -->
 
 Rerunning training reproduces results only approximately, because GPU operations are not bit-deterministic. The result JSONs in `outputs/results/` are the reference values behind every table in the paper.
 

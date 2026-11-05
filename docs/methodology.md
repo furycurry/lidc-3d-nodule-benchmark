@@ -187,7 +187,7 @@ Both approximations in the SDF cache (Section 1.7) were tested by quantifying th
 
 **Patch-boundary truncation.** 304 of 2,651 nodules (11.5%) touch or exceed the 64³ patch boundary. Near-boundary SDF error is 0.191 mm for these nodules against 0.023 mm for the rest. Corrected reference SDFs were computed from 128³ wide masks, center-cropped to 64³ and clipped at ±20 mm (`generate_corrected_sdf.py`).
 
-**Rotation under augmentation.** Bilinear interpolation of the cached SDF under rotation violates the Eikonal condition. The measured near-boundary error is 0.240 mm (whole-patch 0.060 mm). The corrected runs rotate the wide mask together with the image and recompute the SDF from the rotated mask on the fly.
+**Rotation under augmentation.** Bilinear interpolation of the cached SDF under rotation violates the Eikonal condition. The measured near-boundary error is 0.240 mm (whole-patch 0.060 mm). The corrected runs rotate the 128³ wide mask together with the image and label and recompute the SDF from the rotated wide mask on the fly. This is an exact-SDF condition: it removes the truncation error as well as the interpolation error, so it does not isolate rotation alone. (The truncation audit changes only the cached SDF and leaves the rotation approximation in place.)
 
 Neither correction improved on the original runs. Under the last-10-epoch aggregate all 12 comparisons have p ≥ 0.11. Under peak validation Dice, one comparison (fixed schedule, rotation-corrected SDF) is nominally *worse* than the original (−0.0025, p = 0.020 uncorrected, Wilcoxon 0.0625). Details are in `statistical_analysis.md`, Section 2. The audits were done for UNet3DPaper only.
 

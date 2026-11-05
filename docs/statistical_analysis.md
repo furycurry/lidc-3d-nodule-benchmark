@@ -109,14 +109,14 @@ Retrain with corrected SDFs (original vs. corrected):
 | adaptive | HD95 | 5.5812 ± 0.2654 | 5.5813 ± 0.1739 | +0.0001 | 0.9996 | 1.0000 |
 | adaptive | IoU | 0.6445 ± 0.0079 | 0.6398 ± 0.0075 | −0.0048 | 0.5048 | 0.8125 |
 
-### 2.2 Rotation under augmentation
+### 2.2 Rotation under augmentation (exact-SDF retrain)
 
 Training applies `RandRotated` (±0.3 rad per axis) to the cached SDF by bilinear interpolation instead of recomputing it from the rotated mask, which violates the Eikonal condition. Using MONAI's own `Rotate` on 1,000 samples (500 nodules × 2 angle draws), the error against an SDF recomputed from the rotated wide mask was:
 
 - Whole-patch mean 0.060 mm (max 0.388 mm).
 - Near-boundary mean 0.240 mm (max 2.954 mm).
 
-Retrain with the SDF recomputed on the fly from the rotated wide mask:
+Retrain with the SDF recomputed on the fly from the rotated 128³ wide mask. This condition also removes the truncation error, so it is an exact-SDF test and not a rotation-only test:
 
 | Config | Metric | Original | Corrected | Diff | t-test p | Wilcoxon p |
 |---|---|---|---|---|---|---|

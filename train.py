@@ -55,6 +55,9 @@ def main():
     parser.add_argument("--sdf-path", type=str, default=None,
                          help="Override config.SDF_H5_PATH for this run (e.g. corrected, "
                               "non-truncated SDFs) without touching the original results.")
+    parser.add_argument("--wide-mask-path", type=str, default=None,
+                        help="HDF5 of 128^3 wide masks. If set, the training SDF is recomputed per sample from the "
+                             "rotated wide mask (exact-SDF audit); validation still uses --sdf-path.")
     parser.add_argument("--experiment-tag", type=str, default=None,
                          help="Suffix for experiment_name/checkpoint dir/results filename, "
                               "so a variant run never overwrites the original.")
@@ -106,7 +109,8 @@ def main():
     assert len(set(train_keys) & set(test_keys)) == 0, "LEAKAGE: train ∩ test not empty!"
     assert len(set(val_keys) & set(test_keys)) == 0, "LEAKAGE: val ∩ test not empty!"
 
-    train_ds = LIDCDataset(keys=train_keys, is_train=True, use_sdf=use_sdf, sdf_path=sdf_path)
+    train_ds = LIDCDataset(keys=train_keys, is_train=True, use_sdf=use_sdf, sdf_path=sdf_path,
+                           wide_mask_path=args.wide_mask_path)
     val_ds = LIDCDataset(keys=val_keys, is_train=False, use_sdf=use_sdf, sdf_path=sdf_path)
 
     train_loader = DataLoader(train_ds, batch_size=config.BATCH_SIZE, shuffle=True,
@@ -472,6 +476,7 @@ def main():
         "adaptive_boundary": adaptive_mode,
         "architecture": architecture, "loss_variant": loss_variant,
         "sdf_path": str(sdf_path) if use_sdf else None,
+        "wide_mask_path": args.wide_mask_path,
         "code_version": get_code_version(), "timestamp": datetime.now().isoformat(timespec="seconds"),
         "batch_size": config.BATCH_SIZE, "learning_rate": config.LEARNING_RATE,
         "epochs_planned": epochs, "epochs_completed": len(history),
