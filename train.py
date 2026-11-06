@@ -58,6 +58,8 @@ def main():
     parser.add_argument("--wide-mask-path", type=str, default=None,
                         help="HDF5 of 128^3 wide masks. If set, the training SDF is recomputed per sample from the "
                              "rotated wide mask (exact-SDF audit); validation still uses --sdf-path.")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Allow replacing an existing checkpoint folder / result file for this run name.")
     parser.add_argument("--experiment-tag", type=str, default=None,
                          help="Suffix for experiment_name/checkpoint dir/results filename, "
                               "so a variant run never overwrites the original.")
@@ -84,6 +86,11 @@ def main():
         experiment_name += f"_{args.experiment_tag}"
 
     checkpoint_dir = config.OUTPUT_DIR / "checkpoints" / experiment_name
+    results_json = config.OUTPUT_DIR / "results" / f"{experiment_name}.json"
+    if not args.overwrite and (results_json.exists() or (checkpoint_dir.exists() and any(checkpoint_dir.iterdir()))):
+        raise SystemExit(f"[ABORT] '{experiment_name}' already has a checkpoint folder or result file. "
+                         "Refusing to overwrite it. Pass --overwrite to replace it deliberately, "
+                         "or use --experiment-tag to write a separate run.")
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     torch.manual_seed(seed)
