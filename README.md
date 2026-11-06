@@ -135,6 +135,7 @@ Full details are in [`docs/methodology.md`](docs/methodology.md).
 - The patient-disjoint split is reproducible: with the patch file below, `data_prep/patient_split.py --verify` regenerates `train_val_test_split.json` exactly (seed 5, 1,833 / 384 / 434 patches).
 - Retraining uses the commands below. GPU training is not bit-deterministic, so a rerun gives approximately, not exactly, the same values.
 - Running `evaluate_test_set.py`, and the exact-SDF audit that needs the wide masks, requires files that are not released (the trained checkpoints and the wide-mask file, whose extraction script is not included here). The test results they produced are in `outputs/test_results/`.
+- The checkpoint of the seed-42 baseline UNet3DPaper run was overwritten after its test evaluation, so that one evaluation cannot be re-run. Its test metrics predate the overwrite and are stored in `outputs/test_results/`; the checksum manifest records the original file's SHA-256 (`e422e6711da101fc3db35389247c7682ddc9550b7f5b085e6290c8d5a28ae37c`), and the other 31 checkpoints verify against it.
 
 To check that a rebuilt dataset matches the one used here, compare against these SHA-256 values (a rebuild can differ in low-level bytes if library versions differ, so a mismatch is informative but not necessarily an error):
 
