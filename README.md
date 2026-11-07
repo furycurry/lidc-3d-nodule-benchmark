@@ -111,7 +111,6 @@ No full-cohort boundary-loss comparison reaches significance (UNet3DPaper valida
 └── LICENSE
 ```
 
-<!-- TODO(verify): confirm data_prep/ contains the four scripts listed after the flatten step. -->
 
 ## Methodology Highlights
 
