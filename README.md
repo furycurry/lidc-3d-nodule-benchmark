@@ -173,18 +173,20 @@ python statistical_test.py  --architecture unet3d_paper
 
 # 4. Gradient telemetry and gate analysis
 python grad_telemetry_check.py --architecture unet3d_paper --seed 42
-python analyze_adaptive_gate.py
+python analyze_adaptive_gate.py --architecture unetr
 
 # 5. Held-out test evaluation: run only after all model/loss decisions are final
 #    (one-look discipline, docs/methodology.md Section 4.5)
 python evaluate_test_set.py
 python compute_test_nsd.py
-python analyze_test_result.py
+python analyze_test_result.py --arch unet3d_paper
+python analyze_test_result.py --arch unetr
 python analyze_clinical_stratification.py
 
 # 6. SDF audits
 python compare_corrected_sdf.py --results-dir outputs/results
-python quantify_rotation_error.py
+python quantify_rotation_error.py --wide-h5 lidc_wide_masks_and_provenance.h5 \
+    --sdf-h5 lidc_corrected_sdf_64.h5 --out-report outputs/rotation_error_report.json
 
 # 7. Regenerate every reported number from the raw JSONs
 python tools/make_tables_validation.py   # -> outputs/generated/validation_tables.md
@@ -212,7 +214,7 @@ python train.py --seed 42 --architecture unet3d_paper --boundary \
 
 The `rotationCorrected` result JSONs record a `wide_mask_path` field and code fingerprint `aa564d7dc34d`; the `train.py` variant that produced them was not committed, and the `--wide-mask-path` option in this release reproduces it. Result JSONs record the fingerprint of the code that produced them (`6d28de4f780d` main UNet3DPaper matrix, `925996db30b0` UNETR, `8ab2f50d9136` truncation retrains, `aa564d7dc34d` exact-SDF retrains, `05da343e13a1` the two probe runs); later commits change paths, comments and documentation only.
 
-Rerunning training reproduces results only approximately, because GPU operations are not bit-deterministic. The result JSONs in `outputs/results/` are the reference values behind every table in the paper. `train.py` refuses to start if a checkpoint folder or result file for the same run name already exists; pass `--overwrite` to replace it deliberately, or `--experiment-tag` to write a separate run.
+Rerunning training reproduces results only approximately, because GPU operations are not bit-deterministic. The result JSONs in `outputs/results/` are the reference values behind every table in the paper. The analysis scripts in step 5 regenerate the committed summaries with the same numbers; their layout and some added fields may differ from the committed copies. `train.py` refuses to start if a checkpoint folder or result file for the same run name already exists; pass `--overwrite` to replace it deliberately, or `--experiment-tag` to write a separate run.
 
 ### Archiving a run (optional)
 
