@@ -84,7 +84,7 @@ No full-cohort boundary-loss comparison reaches significance (UNet3DPaper valida
 ├── grad_telemetry_check.py   # Per-term gradient-norm diagnostic
 ├── compare_corrected_sdf.py  # Original vs. corrected-SDF retrains (SDF audits)
 ├── quantify_rotation_error.py# Rotation-interpolation error of the cached SDF
-├── audit_ground_truth.py, per_seed_values.py, inspect_dataset.py, grad_inspector.py, make_figures.py
+├── audit_ground_truth.py, per_seed_values.py, inspect_dataset.py, grad_inspector.py
 ├── archiving.py / archive_run.py   # Archive a run's checkpoints, per-sample metrics, examples
 ├── run_multiseed.sh          # Full 15-run matrix for one architecture, sequential
 ├── run_clean_matrix.sh       # Same matrix, parallel across GPUs

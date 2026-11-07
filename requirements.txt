@@ -6,8 +6,9 @@ numpy>=1.24
 scipy>=1.10
 scikit-learn>=1.2
 tqdm>=4.65
+einops>=0.8        # required by UNETR (MONAI)
 
-# --- Local-machine-only, for src/build_hdf5.py (dataset extraction) ---
+# --- Local-machine-only, for data_prep/build_hdf5.py (dataset extraction) ---
 # Not needed for training — only on a machine with LIDC-IDRI DICOM
 # access. Uncomment if running the extraction step:
 # pylidc>=0.2.3
