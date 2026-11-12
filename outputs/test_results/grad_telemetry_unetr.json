@@ -1,0 +1,8 @@
+{
+  "architecture": "unetr",
+  "checkpoint": "/workspace/outputs/checkpoints/boundary_unetr_seed42/best_dice_unet3d.pt",
+  "regional_grad_norm_mean": 0.0009930621599778533,
+  "boundary_grad_norm_mean_raw": 6.437265540171211e-06,
+  "boundary_raw_share_pct": 0.6440489484858762,
+  "boundary_effective_share_pct_at_trained_weight": 0.03240068991183921
+}

@@ -1,0 +1,71 @@
+{
+  "architecture": "unetr",
+  "overall_max_weight": 0.02638565773996178,
+  "per_seed": [
+    {
+      "seed": 42,
+      "n_activation_periods": 0,
+      "ends_active": false,
+      "pattern": "never activated",
+      "max_weight": 0.0,
+      "mean_weight_active_epochs": 0.0,
+      "mean_weight_full_run": 0.0,
+      "min_velocity": 0.0018301342088027598,
+      "n_qualifying_epochs": 1,
+      "n_epochs_with_velocity": 47,
+      "longest_qualifying_streak": 1
+    },
+    {
+      "seed": 123,
+      "n_activation_periods": 0,
+      "ends_active": false,
+      "pattern": "never activated",
+      "max_weight": 0.0,
+      "mean_weight_active_epochs": 0.0,
+      "mean_weight_full_run": 0.0,
+      "min_velocity": 0.0026195502273165406,
+      "n_qualifying_epochs": 2,
+      "n_epochs_with_velocity": 47,
+      "longest_qualifying_streak": 1
+    },
+    {
+      "seed": 456,
+      "n_activation_periods": 0,
+      "ends_active": false,
+      "pattern": "never activated",
+      "max_weight": 0.0,
+      "mean_weight_active_epochs": 0.0,
+      "mean_weight_full_run": 0.0,
+      "min_velocity": 0.002903958679985572,
+      "n_qualifying_epochs": 3,
+      "n_epochs_with_velocity": 47,
+      "longest_qualifying_streak": 2
+    },
+    {
+      "seed": 789,
+      "n_activation_periods": 0,
+      "ends_active": false,
+      "pattern": "never activated",
+      "max_weight": 0.0,
+      "mean_weight_active_epochs": 0.0,
+      "mean_weight_full_run": 0.0,
+      "min_velocity": 0.0035365353056237047,
+      "n_qualifying_epochs": 1,
+      "n_epochs_with_velocity": 47,
+      "longest_qualifying_streak": 1
+    },
+    {
+      "seed": 2024,
+      "n_activation_periods": 1,
+      "ends_active": true,
+      "pattern": "clean single activation",
+      "max_weight": 0.02638565773996178,
+      "mean_weight_active_epochs": 0.008299022915736294,
+      "mean_weight_full_run": 0.0016598045831472587,
+      "min_velocity": -0.00010476214530329946,
+      "n_qualifying_epochs": 5,
+      "n_epochs_with_velocity": 47,
+      "longest_qualifying_streak": 3
+    }
+  ]
+}
